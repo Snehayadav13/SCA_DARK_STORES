@@ -8,3 +8,32 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Large data files — do not commit to GitHub
+data/raw/*.csv
+data/raw/*.json
+data/*.parquet
+data/*.csv
+
+# Numpy/binary artefacts
+*.npy
+*.npz
+*.pkl
+
+# Output artefacts (regenerated on each run)
+outputs/*.csv
+outputs/*.json
+outputs/*.html
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Models
+models/
+
+# OS / Editor clutter
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/settings.json

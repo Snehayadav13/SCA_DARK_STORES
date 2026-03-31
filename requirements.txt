@@ -1,0 +1,34 @@
+# Dark Store Placement + Integrated Logistics Optimisation
+# Full dependency list — pip install -r requirements.txt
+# Python 3.13+
+
+# Data
+pandas>=2.0
+numpy>=1.26
+scipy>=1.11
+geopandas>=0.14
+
+# Machine Learning
+scikit-learn>=1.3
+xgboost>=2.0
+prophet>=1.1
+shap>=0.43
+
+# Optimisation
+ortools>=9.8
+pulp>=2.7
+
+# Visualisation
+folium>=0.15
+plotly>=5.18
+matplotlib>=3.8
+seaborn>=0.13
+
+# Jupyter
+jupyter>=1.1
+ipykernel>=7.0
+
+# Reporting
+python-docx>=1.1
+python-pptx>=0.6
+openpyxl>=3.1

@@ -1,6 +1,6 @@
-# Session Summary — Dark Store + Integrated Logistics Project
-> **Purpose:** Complete context handoff for a fresh Claude session. Read fully before responding to any follow-up.  
-> **Date generated:** March 31, 2026 | **Project deadline:** April 8, 2026 | **Start date:** April 1, 2026
+# Master Project Summary — Dark Store + Integrated Logistics Project
+> **Purpose:** Canonical context handoff for any fresh Claude / ChatGPT session. Read fully before responding to any follow-up. This is the single source of truth for the whole project — team, architecture, methodology, file structure, and implementation decisions.  
+> **Last updated:** March 31, 2026 | **Project deadline:** April 8, 2026 | **Sprint start:** April 1, 2026
 
 ---
 
@@ -354,23 +354,62 @@ project-root/
 ## 9. TECHNOLOGY STACK
 
 ```
-Language:        Python 3.10+
-Data:            pandas, numpy, scipy, geopandas
-ML:              scikit-learn, xgboost, prophet, shap
-Optimisation:    Google OR-Tools (CVRPTW), PuLP (p-median + joint MILP)
-Visualisation:   Folium, Plotly Express, matplotlib
+Language:        Python 3.13.12 (pinned via uv)
+Data:            pandas>=3.0.2, numpy>=2.4.4, scipy, geopandas>=1.1.3
+ML:              scikit-learn>=1.8.0, xgboost>=3.2.0, prophet>=1.3.0, shap>=0.51.0
+Optimisation:    Google OR-Tools>=9.15 (CVRPTW), PuLP>=3.3.0 (p-median + joint MILP)
+Visualisation:   Folium>=0.20.0, Plotly Express, matplotlib>=3.10.8, seaborn>=0.13.2
 Reporting:       python-docx, reportlab, python-pptx
-Dev tools:       Jupyter Lab, VS Code + GitHub Copilot, Git/GitHub
+Dev tools:       Jupyter Lab>=1.1.1, ipykernel>=7.2.0, VS Code + GitHub Copilot, Git/GitHub
 AI — Pritam:     Claude Code (architecture, complex debugging, report, integration)
 AI — Others:     Gemini Pro + GitHub Copilot
-Environment:     UV-managed on WSL/Windows (Pritam's preference)
+Environment:     uv on WSL2/Windows (see Section 9a below)
 ```
 
-**Install:**
+### 9a. UV Environment Setup (Pritam's machine)
+
+```
+OS:              Windows 11 + WSL2 (Ubuntu)
+Path:            /mnt/d/Python-UV/SCA_DARK_STORES
+Python:          3.13.12 (pinned with uv python pin 3.13.12)
+Venv:            .venv/ managed by uv (created automatically on first uv add)
+Package file:    pyproject.toml  (uv-native; requirements.txt is a pip-compatible mirror)
+Lockfile:        uv.lock  (committed; reproducible installs)
+GitHub repo:     https://github.com/metaphorpritam/SCA_DARK_STORES
+```
+
+**Commands to reproduce environment from scratch:**
 ```bash
-pip install pandas numpy scipy geopandas scikit-learn xgboost prophet shap \
-            ortools pulp folium plotly matplotlib seaborn \
-            python-docx reportlab python-pptx openpyxl
+# From WSL terminal
+cd /mnt/d/Python-UV/SCA_DARK_STORES
+uv python pin 3.13.12
+uv sync                          # installs all deps from uv.lock
+source .venv/bin/activate        # activate venv for notebook / script use
+```
+
+**pyproject.toml dependencies (as of Day 1):**
+```toml
+dependencies = [
+    "numpy>=2.4.4",
+    "pandas>=3.0.2",
+    "jupyter>=1.1.1",
+    "ipykernel>=7.2.0",
+    "matplotlib>=3.10.8",
+    "seaborn>=0.13.2",
+    "scikit-learn>=1.8.0",
+    "ortools>=9.15.6755",
+    "pulp>=3.3.0",
+    "geopandas>=1.1.3",
+    "xgboost>=3.2.0",
+    "prophet>=1.3.0",
+    "shap>=0.51.0",
+    "folium>=0.20.0",
+]
+```
+
+**To add a new package:**
+```bash
+uv add <package>       # resolves, installs, updates pyproject.toml + uv.lock
 ```
 
 ---

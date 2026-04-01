@@ -24,6 +24,7 @@ data/*.csv
 outputs/*.csv
 outputs/*.json
 outputs/*.html
+outputs/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/

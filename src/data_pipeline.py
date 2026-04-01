@@ -356,4 +356,3 @@ if __name__ == "__main__":
     raw = sys.argv[1] if len(sys.argv) > 1 else "data/raw"
     out = sys.argv[2] if len(sys.argv) > 2 else "data/master_df.parquet"
     run(raw_dir=raw, output_path=out)
-    

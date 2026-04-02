@@ -503,3 +503,9 @@ def run_full_pipeline(
         "kmeans_results": kmeans_results,
         "coverage_overall": coverage,
     }
+if __name__ == "__main__":
+    run_full_pipeline(
+        parquet_path="data/master_df_v2.parquet",
+        out_dir="data",
+        k_range=range(3, 13),
+    )

@@ -1,6 +1,6 @@
 """
 Module: exploratory_analysis.py
-Stage:  Day 1-2 — SP Spatial EDA (Anurag)
+Stage: SP Spatial EDA
 
 INPUT:
     data/raw/  — olist_orders_dataset.csv, olist_customers_dataset.csv,

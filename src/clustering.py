@@ -1,6 +1,6 @@
 """
 Module: clustering.py
-Stage:  Day 2–3 — Dark Store Placement (K-Means + p-Median)
+Stage:  Dark Store Placement (K-Means + p-Median)
 
 INPUT:
     master_df : pd.DataFrame

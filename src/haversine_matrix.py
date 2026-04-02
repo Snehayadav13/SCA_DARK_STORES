@@ -1,6 +1,6 @@
 """
 Module: haversine_matrix.py
-Owner:  Pritam
+Stage:  Distance Matrix Construction
 
 INPUT:
     coords : np.ndarray, shape (N, 2)

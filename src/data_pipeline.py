@@ -1,6 +1,6 @@
 """
 Module: data_pipeline.py
-Stage:  Day 1 — Olist CSV merge  →  master_df.parquet
+Stage:  Olist CSV merge  →  master_df.parquet
 
 INPUT:
     data/raw/{filename}.csv  — Olist Brazilian E-Commerce (9 files)

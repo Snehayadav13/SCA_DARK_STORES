@@ -1,0 +1,20 @@
+{
+  "mean_cust_seller_dist_km": 249.09,
+  "median_cust_seller_dist_km": 162.15,
+  "p90_cust_seller_dist_km": 531.65,
+  "max_cust_seller_dist_km": 2716.96,
+  "mean_delivery_days": 8.3,
+  "median_delivery_days": 7.0,
+  "mean_days_late": -11.08,
+  "pct_late_deliveries": 4.36,
+  "return_rate_pct": 2.81,
+  "total_returns": 1174,
+  "total_orders": 41731,
+  "mean_order_value": 141.85,
+  "mean_freight_value": 17.37,
+  "total_freight_revenue": 718508.66,
+  "dark_store_coverage_pct": 0.0,
+  "num_dark_stores": 0,
+  "unique_customers": 41731,
+  "unique_zips": 5577
+}

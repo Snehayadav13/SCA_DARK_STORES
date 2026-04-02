@@ -1,6 +1,6 @@
 """
 Module: joint_optimizer.py
-Stage:  Day 6 — Joint Forward + Reverse Logistics Optimisation (MILP via PuLP)
+Stage:  Joint Forward + Reverse Logistics Optimisation (MILP via PuLP)
 
 Objective (minimise):
     Z = α·C_fwd + β·C_rev + γ·T_pen + δ·N_veh

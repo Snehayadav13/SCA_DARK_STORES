@@ -1,6 +1,5 @@
 """
 Module: route_parser.py
-Stage:  Day 3 (forward VRP) and Day 4 (reverse VRP)
 Owner:  Pranav builds the OR-Tools models; Pritam's pipeline CONSUMES this output.
 
 INPUT  (produced by Pranav's VRP solver):

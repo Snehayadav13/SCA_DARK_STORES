@@ -1,7 +1,6 @@
 # K-Means vs p-Median: A Comparison Note for Dark Store Placement
 
 **Author:** Sneha  
-**Date:** April 1, 2026  
 **Project:** Dark Store Placement + Integrated Forward & Reverse Logistics Optimisation
 
 ---

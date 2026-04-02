@@ -16,5 +16,6 @@
   "dark_store_coverage_pct": 0.0,
   "num_dark_stores": 0,
   "unique_customers": 41731,
-  "unique_zips": 5577
+  "unique_zips": 5577,
+  "unique_sellers_in_sp_orders": 1918
 }

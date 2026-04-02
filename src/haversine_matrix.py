@@ -1,6 +1,6 @@
 """
 Module: haversine_matrix.py
-Stage:  Day 2 — Distance Matrix Construction
+Stage:  Distance Matrix Construction
 
 INPUT:
     coords : np.ndarray, shape (N, 2)

@@ -1,7 +1,7 @@
 """
 OR-Tools CVRPTW Toy Example — 10-node problem
 ==============================================
-Day 1 deliverable: confirm OR-Tools is installed and working end-to-end.
+confirm OR-Tools is installed and working end-to-end.
 
 Problem:
     1 depot (node 0) + 9 customer stops

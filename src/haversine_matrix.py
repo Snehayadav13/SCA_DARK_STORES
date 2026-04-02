@@ -1,6 +1,5 @@
 """
 Module: haversine_matrix.py
-Stage:  Day 2 — Distance Matrix Construction
 Owner:  Pritam
 
 INPUT:
@@ -34,7 +33,9 @@ DESIGN NOTES:
     - Row/column order matches vrp_nodes.csv index exactly (node 0 = depot).
     - Diagonal is 0 (self-distance).
     - Matrix is symmetric by construction.
-    - Expected SP range: min ~0.5 km, mean ~15 km, max ~60 km.
+    - For the current 500-node SP *state* sample: min ≈0.05 km, mean ≈146 km,
+      max ≈746 km (SP state is ~900 km E–W); restrict to São Paulo city bounding
+      box first if tighter distances are needed.
 """
 
 from __future__ import annotations
@@ -97,49 +98,104 @@ def stratified_sample(
     if missing:
         raise ValueError(f"master_df missing columns: {missing}")
 
-    # Drop nulls and deduplicate on exact (lat, lon) — prevents zero off-diagonals
-    clean = (
-        df.dropna(subset=["customer_lat", "customer_lon"])
-        .drop_duplicates(subset=["customer_lat", "customer_lon"])
-        .copy()
-    )
+    # Drop nulls on coordinates first — preserve order-level detail for weighting
+    base = df.dropna(subset=["customer_lat", "customer_lon"]).copy()
 
-    # Order-count weight per zip for proportional allocation
-    zip_counts = clean.groupby("customer_zip_code_prefix")["order_id"].count()
-    clean["zip_order_count"] = clean["customer_zip_code_prefix"].map(zip_counts)
+    # Order-count weight per zip computed from non-deduplicated data so proportions
+    # reflect true order volume, not just unique-coordinate counts
+    zip_counts = base.groupby("customer_zip_code_prefix")["order_id"].count()
+    total = zip_counts.sum()
+
+    # Deduplicate on exact (lat, lon) for the candidate pool only — prevents
+    # zero off-diagonal entries in the distance matrix
+    clean = base.drop_duplicates(subset=["customer_lat", "customer_lon"]).copy()
+
+    if len(clean) < n:
+        raise ValueError(
+            f"Requested sample size n={n} exceeds number of unique "
+            f"locations after deduplication ({len(clean)})."
+        )
 
     # Proportional quota per zip, floored to integers summing to n
-    total = clean["zip_order_count"].sum()
     zip_df = (
         clean.groupby("customer_zip_code_prefix")
-        .agg(zip_order_count=("zip_order_count", "first"))
-        .reset_index()
+        .size()
+        .reset_index(name="pool_size")
     )
-    zip_df["quota"] = (zip_df["zip_order_count"] / total * n).clip(lower=1)
+    zip_df["zip_order_count"] = (
+        zip_df["customer_zip_code_prefix"].map(zip_counts).fillna(0)
+    )
+    zip_df["quota"] = zip_df["zip_order_count"] / total * n
     zip_df["quota_int"] = np.floor(zip_df["quota"]).astype(int)
     remainder = n - zip_df["quota_int"].sum()
     if remainder > 0:
         frac = zip_df["quota"] - zip_df["quota_int"]
         zip_df.loc[frac.nlargest(int(remainder)).index, "quota_int"] += 1
+    elif remainder < 0:
+        # Rounding edge-case: reduce quota from largest-allocated zips
+        excess = int(-remainder)
+        for idx in zip_df.sort_values("quota_int", ascending=False).index:
+            if excess <= 0:
+                break
+            if zip_df.loc[idx, "quota_int"] > 0:
+                zip_df.loc[idx, "quota_int"] -= 1
+                excess -= 1
 
-    # Sample actual rows within each zip (not centroids — real customer coords)
+    # Sample actual rows within each zip from deduplicated candidate pool
     rng = np.random.default_rng(random_state)
     parts: list[pd.DataFrame] = []
     for _, zrow in zip_df[zip_df["quota_int"] > 0].iterrows():
         z = zrow["customer_zip_code_prefix"]
         q = int(zrow["quota_int"])
         pool = clean[clean["customer_zip_code_prefix"] == z]
-        drawn = pool.sample(n=min(q, len(pool)),
-                            random_state=int(rng.integers(0, 2**31)),
-                            replace=False)
+        drawn = pool.sample(
+            n=min(q, len(pool)),
+            random_state=int(rng.integers(0, 2**31)),
+            replace=False,
+        )
         parts.append(drawn[["customer_lat", "customer_lon",
-                             "customer_zip_code_prefix", "zip_order_count"]])
+                             "customer_zip_code_prefix"]])
 
-    sample_raw = pd.concat(parts, ignore_index=True).head(n)
+    sample_raw = pd.concat(parts, ignore_index=True)
 
-    sample_df = sample_raw.rename(
-        columns={"zip_order_count": "order_count"}
-    ).reset_index(drop=True)
+    # Post-check: top up to exactly n if any zip had fewer rows than its quota
+    if len(sample_raw) < n:
+        needed_extra = n - len(sample_raw)
+        remaining_pool = clean.merge(
+            sample_raw[["customer_lat", "customer_lon"]],
+            on=["customer_lat", "customer_lon"],
+            how="left",
+            indicator=True,
+        )
+        remaining_pool = (
+            remaining_pool[remaining_pool["_merge"] == "left_only"]
+            .drop(columns="_merge")
+        )
+        if len(remaining_pool) < needed_extra:
+            raise ValueError(
+                "Unable to obtain requested stratified sample size under "
+                "the deduplication constraint."
+            )
+        extra = remaining_pool.sample(
+            n=needed_extra,
+            random_state=int(rng.integers(0, 2**31)),
+            replace=False,
+        )[["customer_lat", "customer_lon", "customer_zip_code_prefix"]]
+        sample_raw = pd.concat([sample_raw, extra], ignore_index=True)
+
+    # Trim to exactly n if rounding produced more
+    if len(sample_raw) > n:
+        sample_raw = sample_raw.sample(
+            n=n,
+            random_state=int(rng.integers(0, 2**31)),
+            replace=False,
+        ).reset_index(drop=True)
+
+    # Attach order_count per zip and build final DataFrame
+    sample_raw["order_count"] = (
+        sample_raw["customer_zip_code_prefix"].map(zip_counts).fillna(0).astype(int)
+    )
+    sample_df = sample_raw.reset_index(drop=True)
     sample_df.index.name = "node_id"
     sample_df = sample_df.reset_index()   # node_id becomes explicit column
 
@@ -188,7 +244,7 @@ def build_distance_matrix(coords: np.ndarray) -> np.ndarray:
     )
     # clip to [0,1] guards against floating-point noise producing a > 1
     d_km = 2.0 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
-    return (d_km * SCALE_FACTOR).astype(np.int64)
+    return np.rint(d_km * SCALE_FACTOR).astype(np.int64)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -223,12 +279,12 @@ def validate_matrix(matrix: np.ndarray) -> dict:
     dict with keys:
         shape, dtype, min_km, mean_km, max_km,
         is_symmetric, diagonal_zero, all_positive_off_diag
-    Raises AssertionError if any check fails.
+    Raises ValueError if any check fails.
     """
-    assert matrix.ndim == 2 and matrix.shape[0] == matrix.shape[1], \
-        "Matrix must be square 2D array"
-    assert matrix.dtype == np.int64, \
-        f"Expected int64, got {matrix.dtype}"
+    if not (matrix.ndim == 2 and matrix.shape[0] == matrix.shape[1]):
+        raise ValueError("Matrix must be square 2D array")
+    if matrix.dtype != np.int64:
+        raise ValueError(f"Expected int64, got {matrix.dtype}")
 
     km = matrix.astype(np.float64) / SCALE_FACTOR
     off_diag_mask = ~np.eye(matrix.shape[0], dtype=bool)
@@ -237,9 +293,12 @@ def validate_matrix(matrix: np.ndarray) -> dict:
     diagonal_zero = bool(np.all(np.diag(matrix) == 0))
     all_positive = bool(np.all(matrix[off_diag_mask] > 0))
 
-    assert is_symmetric,     "Matrix is not symmetric"
-    assert diagonal_zero,    "Diagonal contains non-zero values"
-    assert all_positive,     "Off-diagonal entries contain zeros or negatives"
+    if not is_symmetric:
+        raise ValueError("Matrix is not symmetric")
+    if not diagonal_zero:
+        raise ValueError("Diagonal contains non-zero values")
+    if not all_positive:
+        raise ValueError("Off-diagonal entries contain zeros or negatives")
 
     off_diag_km = km[off_diag_mask]
     return {

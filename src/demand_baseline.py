@@ -1,7 +1,7 @@
 """
 Module: demand_baseline.py
 Demand Profile + Baseline KPIs + master_df_v2
-Owner:  Vybhav
+
 
 INPUT:
     data/master_df.parquet  (Day 1 output, SP-filtered, 41K rows)

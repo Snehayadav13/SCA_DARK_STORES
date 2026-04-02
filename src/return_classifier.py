@@ -1,6 +1,6 @@
 """
 Module: return_classifier.py
-Stage:  Day 5 — Return-Probability Classifier (XGBoost)
+Stage:  Return-Probability Classifier (XGBoost)
 
 INPUT:
     master_df : pd.DataFrame  (data/master_df.parquet)

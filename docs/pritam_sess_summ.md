@@ -1,7 +1,7 @@
 # Pritam's Progress Summary — Dark Store Project
 > **Purpose:** Context handoff for a fresh Claude / ChatGPT session scoped to Pritam's work only.  
 > Load this + `session_summary_v3.md` (master context) at the start of every new session.  
-> **Last updated:** March 31, 2026 | **Day 1 complete. Day 2 starts April 1.**
+> **Last updated:** April 1, 2026 | **Day 2 complete. Day 3 starts April 2.**
 
 ---
 
@@ -14,7 +14,7 @@
 
 ---
 
-## 2. WHAT PRITAM HAS COMPLETED (Day 1 — March 31, 2026)
+## 2. WHAT PRITAM HAS COMPLETED (Day 1 — March 31, 2026 + Day 2 — April 1, 2026)
 
 ### 2.1 Environment & Repo
 
@@ -90,6 +90,37 @@ Each stub has: module docstring, typed function signatures, parameter descriptio
 | `src/return_classifier.py` | `build_features()`, `train_classifier()`, `predict_return_prob()` |
 | `src/joint_optimizer.py` | `compute_Z()`, `pareto_sweep()`, `solve_sdvrp_hybrid()` |
 
+### 2.7 Day 2 — Haversine Distance Matrix ✅ COMPLETE
+
+**Commit:** `pritam_temp_apr1` branch — "Day 2 (Pritam): vectorised Haversine distance matrix + Day 2 summary notebook"
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `data/master_df.parquet` received | ✅ Done | Downloaded from shared Drive (7.7 MB); Vybhav's pipeline output |
+| `src/haversine_matrix.py` implemented | ✅ Done | Full production implementation replacing stub |
+| `data/distance_matrix.npy` generated | ✅ Done | 500×500 int64, integer-scaled ×1000, 1,953 KB |
+| `data/sp_customer_sample.csv` generated | ✅ Done | 500 rows: `node_id, lat, lon, zip_prefix, order_count` |
+| `notebooks/02_day2_distance_matrix.ipynb` | ✅ Done | Full documentation notebook, 7 sections |
+| Matrix validation passed | ✅ Done | min=0.013 km · mean=6.49 km · max=21.25 km · symmetric · diagonal=0 |
+
+**Key implementation decisions in `src/haversine_matrix.py`:**
+- `stratified_sample()`: proportional zip-code stratification; samples **real unique customer rows** (not centroids); deduplicates on `(lat, lon)` to prevent zero off-diagonal entries
+- `build_distance_matrix()`: pure NumPy broadcasting — `dlat = lat[:,None] - lat[None,:]` pattern — ~10 ms for 500×500 (vs ~8 s naive loop)
+- `validate_matrix()`: 5 assertions — square, int64, symmetric, diagonal=0, all off-diagonal positive
+- `run()`: one-shot pipeline entry point
+- `save/load_distance_matrix()`: binary `.npy` round-trip
+
+**Notebook sections (`notebooks/02_day2_distance_matrix.ipynb`):**
+1. Data loading & SP filter
+2. Stratified spatial sampling (theory + implementation)
+3. Haversine formula derivation
+4. Distance matrix build, validate, save
+5. Visualisations (histogram + heatmap)
+6. OR-Tools integration demo (how matrix feeds CVRPTW)
+7. API reference
+
+---
+
 ### 2.6 Installed Packages (pyproject.toml)
 
 ```
@@ -107,47 +138,36 @@ uv sync && uv run python -c "import numpy, pandas, sklearn, ortools, pulp; print
 
 ---
 
-## 3. WHAT PRITAM MUST DO NEXT (Day 2 — April 1)
+## 3. WHAT PRITAM MUST DO NEXT (Day 3 — April 2)
 
-Per the roadmap ([`Dark_Store_Logistics_Roadmap_v3.pdf`](Dark_Store_Logistics_Roadmap_v3.pdf)):
+Per the roadmap:
 
-### Primary task: Haversine Distance Matrix
-**Depends on:** `data/master_df.parquet` from Vybhav (Day 1 EOD)  
-**File to implement:** `src/haversine_matrix.py`
+### Primary task: Forward VRP — OR-Tools CVRPTW (Full Implementation)
+**Depends on:** `vrp_nodes.csv` from Pranav (Day 2 EOD)  
+**File to implement:** `src/joint_optimizer.py` + VRP runner
 
 Steps:
-1. Load `master_df.parquet`; filter `customer_state == 'SP'`
-2. Stratified spatial sample → 500 representative customer (lat, lon) points
-3. Build 500×500 pairwise Haversine distance matrix
-4. Scale to integers × 1000 for OR-Tools compatibility
-5. Save `data/distance_matrix.npy` and `data/sp_customer_sample.csv`
-6. Validate: print min/mean/max — expect ~0.5 km to ~60 km for SP
+1. Load `vrp_nodes.csv` + `data/distance_matrix.npy`
+2. `RoutingIndexManager`: 1 dark store depot + N customers per zone
+3. Distance callback: integer-scaled Haversine matrix
+4. Demand callback: `order_weight_g` per customer
+5. Time callback: `travel_time = distance / 40 km/h + service_time_min`
+6. `AddDimensionWithVehicleCapacity`: max_load = 500 kg
+7. `SetCumulVarSoftUpperBound`: time window per customer
+8. Solve: `PATH_CHEAPEST_ARC` → `GUIDED_LOCAL_SEARCH` (30s limit per zone)
+9. Run for all K zones; collect solution objects
 
-**Expected output files:**
-- `data/distance_matrix.npy` — integer-scaled, 500×500
-- `data/sp_customer_sample.csv` — 500 rows: `[node_id, lat, lon, zip_prefix, order_count]`
-
-**Key implementation note:**
-```python
-# Haversine must be integer-scaled for OR-Tools
-dist_matrix_int = (haversine_matrix_km * 1000).astype(int)
-np.save("data/distance_matrix.npy", dist_matrix_int)
-```
-
-### Secondary (if master_df arrives early): Notebook skeleton
-Create `notebooks/02_distance_matrix.ipynb` — interactive version of the above.
+**Expected output:** `outputs/forward_routes.json` — complete delivery routes for all zones
 
 ---
 
-## 4. BLOCKING DEPENDENCIES ON OTHERS (Day 2)
+## 4. BLOCKING DEPENDENCIES ON OTHERS (Day 3)
 
 | Who | What Pritam needs from them | When |
 |-----|-----------------------------|------|
-| Vybhav | `data/master_df.parquet` | EOD Day 1 (April 1) |
-| Pranav | `vrp_nodes_schema.md` (already committed Day 1) | ✅ Done |
-| Sneha | `dark_store_candidates.csv` | Mid Day 2 (needed for Day 3 VRP) |
-
-Pritam is **not blocked on Day 2** — distance matrix only needs master_df which Vybhav targets by EOD Day 1.
+| Pranav | `vrp_nodes.csv` (with time windows + demand) | EOD Day 2 |
+| Sneha | `dark_store_candidates.csv` (for zone count K) | EOD Day 2 |
+| Vybhav | `data/master_df.parquet` | ✅ Done (received Day 2) |
 
 ---
 
@@ -156,7 +176,7 @@ Pritam is **not blocked on Day 2** — distance matrix only needs master_df whic
 | Day | Pritam's Task | Key Output |
 |-----|--------------|------------|
 | **Day 1 ✅** | Repo + scaffold + OR-Tools warmup + architecture | GitHub live, OR-Tools verified, all stubs |
-| **Day 2** | Haversine 500×500 distance matrix | `distance_matrix.npy`, `sp_customer_sample.csv` |
+| **Day 2 ✅** | Haversine 500×500 distance matrix | `distance_matrix.npy`, `sp_customer_sample.csv` |
 | **Day 3** | Forward VRP — OR-Tools CVRPTW all K zones | `forward_routes.json` |
 | **Day 4** | Forward VRP all zones + SDVRP prototype (1 zone) | `forward_kpi_summary.csv`, `sdvrp_prototype_v1.py` |
 | **Day 5** | SDVRP hybrid all zones + `joint_optimizer.py` v1 | `hybrid_routes.json`, Z computable |
@@ -185,7 +205,7 @@ git add -A && git commit -m "message" && git push origin main
 
 **GitHub:** https://github.com/metaphorpritam/SCA_DARK_STORES  
 **Branch:** `main`  
-**Current HEAD:** commit `9a8b257` (Day 1 scaffold complete)
+**Current HEAD:** Day 2 commit on branch `pritam_temp_apr1` (Haversine matrix complete)
 
 ---
 

@@ -61,12 +61,10 @@ from xgboost import XGBClassifier
 CAT_COLS = [
     "product_category_name_english",
     "payment_type",
-    "customer_state",
     "seller_state",
 ]
 NUM_COLS = [
     "review_score",
-    "days_late",
     "freight_value",
     "order_value",
     "product_weight_g",
@@ -90,9 +88,6 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     Returns a copy with all features as numeric dtype.
     """
     out = df[CAT_COLS + NUM_COLS].copy()
-
-    # days_late: NaN means delivered on time
-    out["days_late"] = out["days_late"].fillna(0)
 
     for col in CAT_COLS:
         le = LabelEncoder()

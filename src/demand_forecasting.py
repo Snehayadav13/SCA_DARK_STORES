@@ -1,6 +1,6 @@
 """
 Module: demand_forecasting.py
-Stage:  Temporal Demand Forecasting (Day 3)
+Stage:  Temporal Demand Forecasting
 
 DEPENDS ON:
     data/master_df_v2.parquet   — enriched dataset with dark_store_id
@@ -155,7 +155,7 @@ def run_pipeline(
 ) -> pd.DataFrame:
 
     print("=" * 60)
-    print("  DAY 3 — DEMAND FORECASTING")
+    print(" DEMAND FORECASTING")
     print("=" * 60)
 
     print("\n[1/4] Loading data...")

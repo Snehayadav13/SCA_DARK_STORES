@@ -38,6 +38,8 @@ from src.route_parser import (
     SOLVER_TIME_LIMIT_S,
     SERVICE_TIME_MIN,
     NUM_VEHICLES,
+    FIXED_COST_PER_ROUTE,
+    VAR_COST_PER_KM,
     build_distance_matrix,
     build_vrp_nodes,
     parse_solution,

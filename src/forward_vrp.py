@@ -28,6 +28,7 @@ import pandas as pd
 from ortools.constraint_solver import routing_enums_pb2, pywrapcp
 
 import sys
+
 if str(Path(__file__).parent.parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -37,6 +38,8 @@ from src.route_parser import (
     SOLVER_TIME_LIMIT_S,
     SERVICE_TIME_MIN,
     NUM_VEHICLES,
+    FIXED_COST_PER_ROUTE,
+    VAR_COST_PER_KM,
     build_distance_matrix,
     build_vrp_nodes,
     parse_solution,
@@ -46,9 +49,50 @@ from src.route_parser import (
 )
 
 
+def compute_naive_baseline(
+    data_dir: str | Path = "data",
+    out_dir: str | Path = "outputs",
+) -> dict:
+    """
+    Compute naive routing baseline — no dark stores, no VRP.
+    Each customer assigned directly to nearest seller.
+    Uses same cost model as forward VRP: R$50 fixed + R$1.5/km.
+    Saves outputs/baseline_kpis_naive.csv.
+    """
+    data_dir = Path(data_dir)
+    out_dir = Path(out_dir)
+
+    dist_matrix = np.load(data_dir / "distance_matrix.npy")  # integer scaled ×1000
+    dist_km = dist_matrix / 1000.0
+
+    # Nearest seller per customer = min distance in each row (excluding self)
+    np.fill_diagonal(dist_km, np.inf)
+    nearest_dist_km = dist_km.min(axis=1)
+    np.fill_diagonal(dist_km, 0)
+
+    total_dist_km = float(nearest_dist_km.sum())
+    avg_dist_km = float(nearest_dist_km.mean())
+    n_customers = len(nearest_dist_km)
+    naive_cost = FIXED_COST_PER_ROUTE * n_customers + VAR_COST_PER_KM * total_dist_km
+
+    result = {
+        "n_customers": n_customers,
+        "total_naive_dist_km": round(total_dist_km, 2),
+        "avg_naive_dist_km": round(avg_dist_km, 2),
+        "naive_routing_cost_R$": round(naive_cost, 2),
+    }
+
+    pd.DataFrame([result]).to_csv(out_dir / "baseline_kpis_naive.csv", index=False)
+    print(f"[compute_naive_baseline] baseline_kpis_naive.csv saved")
+    print(f"  Avg naive dist : {avg_dist_km:.2f} km")
+    print(f"  Naive cost     : R${naive_cost:.0f}")
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Solver
 # ---------------------------------------------------------------------------
+
 
 def solve_cvrptw(
     zone: dict,
@@ -62,27 +106,33 @@ def solve_cvrptw(
     dict: zone_id, solved, routes_df, summary,
           total_dist_km, n_vehicles, routing_cost_R$, dist_matrix
     """
-    n       = len(zone["node_coords"])
+    n = len(zone["node_coords"])
     demands = zone["demands"].tolist()
-    tw      = zone["time_windows"]
+    tw = zone["time_windows"]
 
-    dist_matrix     = build_distance_matrix(zone["node_coords"])
+    dist_matrix = build_distance_matrix(zone["node_coords"])
     speed_m_per_min = VEHICLE_SPEED_KMH * 1000 / 60
-    time_matrix     = np.rint(dist_matrix / speed_m_per_min).astype(int)
+    time_matrix = np.rint(dist_matrix / speed_m_per_min).astype(int)
 
     manager = pywrapcp.RoutingIndexManager(n, num_vehicles, 0)
     routing = pywrapcp.RoutingModel(manager)
 
     def dist_cb(i, j):
         return int(dist_matrix[manager.IndexToNode(i)][manager.IndexToNode(j)])
+
     dist_cb_idx = routing.RegisterTransitCallback(dist_cb)
     routing.SetArcCostEvaluatorOfAllVehicles(dist_cb_idx)
 
     def demand_cb(i):
         return int(demands[manager.IndexToNode(i)])
+
     dem_cb_idx = routing.RegisterUnaryTransitCallback(demand_cb)
     routing.AddDimensionWithVehicleCapacity(
-        dem_cb_idx, 0, [VEHICLE_CAPACITY_G] * num_vehicles, True, "Capacity",
+        dem_cb_idx,
+        0,
+        [VEHICLE_CAPACITY_G] * num_vehicles,
+        True,
+        "Capacity",
     )
 
     def time_cb(i, j):
@@ -90,6 +140,7 @@ def solve_cvrptw(
         return int(time_matrix[node_i][manager.IndexToNode(j)]) + (
             SERVICE_TIME_MIN if node_i != 0 else 0
         )
+
     time_cb_idx = routing.RegisterTransitCallback(time_cb)
     routing.AddDimension(time_cb_idx, 60, 1440, False, "Time")
     time_dim = routing.GetDimensionOrDie("Time")
@@ -116,27 +167,33 @@ def solve_cvrptw(
         return {"zone_id": zone["zone_id"], "solved": False}
 
     routes_df, summary = parse_solution(
-        manager, routing, assignment,
-        zone["node_coords"], zone["node_ids"], dist_matrix,
+        manager,
+        routing,
+        assignment,
+        zone["node_coords"],
+        zone["node_ids"],
+        dist_matrix,
     )
     routes_df["zone_id"] = zone["zone_id"]
 
     total_dist_km = summary["total_distance_km"]
-    n_veh         = summary["n_vehicles_used"]
-    routing_cost  = compute_routing_cost(n_veh, total_dist_km)
+    n_veh = summary["n_vehicles_used"]
+    routing_cost = compute_routing_cost(n_veh, total_dist_km)
 
-    print(f"  Zone {zone['zone_id']:2d}: {n_veh} vehicles | "
-          f"{total_dist_km:.1f} km | R${routing_cost:.0f}")
+    print(
+        f"  Zone {zone['zone_id']:2d}: {n_veh} vehicles | "
+        f"{total_dist_km:.1f} km | R${routing_cost:.0f}"
+    )
 
     return {
-        "zone_id":         zone["zone_id"],
-        "solved":          True,
-        "routes_df":       routes_df,
-        "summary":         summary,
-        "total_dist_km":   total_dist_km,
-        "n_vehicles":      n_veh,
+        "zone_id": zone["zone_id"],
+        "solved": True,
+        "routes_df": routes_df,
+        "summary": summary,
+        "total_dist_km": total_dist_km,
+        "n_vehicles": n_veh,
         "routing_cost_R$": routing_cost,
-        "dist_matrix":     dist_matrix,
+        "dist_matrix": dist_matrix,
     }
 
 
@@ -144,11 +201,12 @@ def solve_cvrptw(
 # Full pipeline
 # ---------------------------------------------------------------------------
 
+
 def run_full_pipeline(
     parquet_path: str | Path = "data/master_df_v3.parquet",
-    stores_path:  str | Path = "data/dark_stores_final.csv",
-    out_dir:      str | Path = "outputs",
-    data_dir:     str | Path = "data",
+    stores_path: str | Path = "data/dark_stores_final.csv",
+    out_dir: str | Path = "outputs",
+    data_dir: str | Path = "data",
 ) -> dict:
     """
     End-to-end forward VRP pipeline.
@@ -167,11 +225,11 @@ def run_full_pipeline(
     print("  FORWARD VRP PIPELINE")
     print("=" * 60)
 
-    out_dir  = Path(out_dir)
+    out_dir = Path(out_dir)
     data_dir = Path(data_dir)
 
     print("\n[1/4] Loading data...")
-    master_df   = pd.read_parquet(parquet_path)
+    master_df = pd.read_parquet(parquet_path)
     dark_stores = pd.read_csv(stores_path)
     print(f"       {len(master_df):,} orders | {len(dark_stores)} zones")
 
@@ -185,7 +243,9 @@ def run_full_pipeline(
     print(f"\n       {n_solved}/{len(zones)} zones solved")
 
     print("\n[4/4] Saving outputs...")
+    naive_baseline = compute_naive_baseline(data_dir=data_dir, out_dir=out_dir)
     routes_df, kpi_df = save_routes(zone_results, zones, out_dir, prefix="forward")
+    kpi_by_zone_df = compute_kpi_by_zone(routes_df, zones, out_dir=out_dir)
 
     print("\n" + "=" * 60)
     print("  FORWARD VRP COMPLETE")
@@ -196,9 +256,9 @@ def run_full_pipeline(
     print("=" * 60)
 
     return {
-        "zones":             zones,
-        "zone_results":      zone_results,
-        "kpi_df":            kpi_df,
+        "zones": zones,
+        "zone_results": zone_results,
+        "kpi_df": kpi_df,
         "forward_routes_df": routes_df,
     }
 

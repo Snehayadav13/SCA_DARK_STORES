@@ -9,3 +9,4 @@ repos:
     rev: 0.7.1
     hooks:
       - id: nbstripout
+        exclude: notebooks/05_reverse_vrp.ipynb

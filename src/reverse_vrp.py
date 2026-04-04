@@ -53,9 +53,9 @@ from src.route_parser import (
 
 FIRST_SOLUTION_STRATEGY = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
 LOCAL_SEARCH_METAHEURISTIC = (
-    routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    routing_enums_pb2.LocalSearchMetaheuristic.SIMULATED_ANNEALING
 )
-STRATEGY_LABEL = "PATH_CHEAPEST_ARC + GUIDED_LOCAL_SEARCH"
+STRATEGY_LABEL = "PATH_CHEAPEST_ARC + SIMULATED_ANNEALING"
 
 
 # ---------------------------------------------------------------------------

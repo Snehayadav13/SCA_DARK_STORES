@@ -202,33 +202,43 @@ Each stub has: module docstring, typed function signatures, parameter descriptio
 
 ### 2.10 Day 5 — SDVRP Hybrid + Z Weight Sensitivity ✅ COMPLETE
 
-**Pritam's first new `src/` implementations since Day 2.**  
-Both functions added to `src/joint_optimizer.py` and verified to import cleanly.
+**Pritam's first new `src/` implementations since Day 2 — revised after team feedback.**  
+Three functions added to `src/joint_optimizer.py`, imports verified, pushed to `pritam_temp_apr5`.
 
 | Item | Owner | Status | Detail |
 |------|-------|--------|--------|
-| `solve_sdvrp_hybrid()` in `src/joint_optimizer.py` | **Pritam** ✍️ | ✅ | OR-Tools SDVRP — two-dim capacity + net constraint |
-| `z_sensitivity_sweep()` in `src/joint_optimizer.py` | **Pritam** ✍️ | ✅ | 256-combo grid search over α,β,γ,δ ∈ {0.10,0.25,0.50,1.0} |
-| Zone 8 SDVRP pilot run | Pritam | ⬅ Run notebook | Target ≤ R\$457 from R\$570.84 separate |
-| `outputs/sdvrp_zone8_result.json` | Pritam | ⬅ Run notebook | Written by `solve_sdvrp_hybrid()` |
-| `outputs/z_sensitivity.csv` | Pritam | ⬅ Run notebook | 256 rows × 10 cols |
+| `solve_sdvrp_hybrid()` in `src/joint_optimizer.py` | **Pritam** ✍️ | ✅ | OR-Tools SDVRP — single Load dim (corrected) |
+| `run_all_zones_sdvrp()` in `src/joint_optimizer.py` | **Pritam** ✍️ | ✅ | Loops all K zones → `hybrid_routes.json` + `hybrid_kpi_summary.csv` |
+| `z_sensitivity_sweep()` in `src/joint_optimizer.py` | **Pritam** ✍️ | ✅ | α/β grid, γ=δ=(1−α−β)/2 → 36 combos |
+| `outputs/hybrid_routes.json` | Pritam | ⬅ Run notebook Cell 15 | Matches `forward_routes.json` schema |
+| `outputs/hybrid_kpi_summary.csv` | Pritam | ⬅ Run notebook Cell 15 | Per-zone: cost, saving_R\$, saving_pct |
+| `outputs/z_sensitivity.csv` | Pritam | ⬅ Run notebook Cell 17 | 36 rows × 10 cols |
 | `notebooks/pritam_temp_notebooks/day5_session_summary.ipynb` | **Pritam** ✍️ | ✅ | 8 cells |
+| `notebooks/04_05_joint_optimizer.ipynb` | **Pritam** ✍️ | ✅ | Updated: 3 new cells (Day 5) |
 
-**`solve_sdvrp_hybrid()` design:**
-- Node layout: depot (0) + delivery nodes (1..n_del) + pickup nodes (n_del+1..)
-- Two `AddDimensionWithVehicleCapacity` calls: Delivery dim + Pickup dim
-- Net constraint: `routing.solver().Add(del_cumul[i] + pick_cumul[i] <= VEHICLE_CAPACITY_G)`
+**`solve_sdvrp_hybrid()` load model (corrected — single "Load" dimension):**
+- `transit[i]` = `pickup_weight[i] − delivery_weight[i]` (net change per node)
+- `fix_start_cumul_to_zero=False` → OR-Tools sets start load = total delivery weight per vehicle
+- `0 ≤ load_cumul[i] ≤ VEHICLE_CAPACITY_G` for all nodes
+- Previous two-dim approach (`del_cumul + pick_cumul ≤ cap`) was over-constraining
 - Strategy: PATH_CHEAPEST_ARC → SIMULATED_ANNEALING · 30s
-- Zone 8 input: 75 deliveries + 45 pickups = 120 combined nodes, 5 vehicles
+- Returns `routes` list in result dict (matching `forward_routes.json` schema + `node_type` field)
 
-**`z_sensitivity_sweep()` design:**
-- `itertools.product(weight_grid, repeat=4)` → 256 (α,β,γ,δ) combos
-- Each combo: `build_model → solve → extract_results`
-- Output: `outputs/z_sensitivity.csv` + Z heatmap (α vs γ at β=δ=0.25)
+**`run_all_zones_sdvrp()` design:**
+- Loops all K zones (intersection of `fwd_zones` and `rev_zones` keys)
+- Calls `solve_sdvrp_hybrid` per zone, uses `fwd_kpi_df + rev_kpi_df` for `separate_cost_r`
+- Writes `hybrid_routes.json` (list of zone dicts) + `hybrid_kpi_summary.csv`
+
+**`z_sensitivity_sweep()` design (scoped):**
+- Signature: `alpha_grid`, `beta_grid` (replaces old `weight_grid`)
+- For each `(α, β)` where `α + β ≤ 0.9`: `γ = δ = (1 − α − β) / 2`
+- Default grid [0.1..0.8] → 36 valid combos (down from 256; weights always sum to 1)
+- Output: `outputs/z_sensitivity.csv` + α/β heatmap
 
 **Pritam `src/` scoreboard after Day 5:**
 - ✅ `src/haversine_matrix.py` (Day 2)
 - ✅ `src/joint_optimizer.py` — `solve_sdvrp_hybrid()` (Day 5)
+- ✅ `src/joint_optimizer.py` — `run_all_zones_sdvrp()` (Day 5)
 - ✅ `src/joint_optimizer.py` — `z_sensitivity_sweep()` (Day 5)
 - ⬅ `src/kpi_reporter.py` (Day 6)
 

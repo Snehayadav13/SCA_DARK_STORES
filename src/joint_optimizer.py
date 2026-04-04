@@ -43,9 +43,13 @@ INTERFACE:
     solve_sdvrp_hybrid(zone_id, fwd_zone, rev_zone, num_vehicles,
                        separate_cost_r, output_path)
         -> dict          # Day 5 (Pritam): SDVRP one-zone hybrid solve
+    run_all_zones_sdvrp(fwd_zones, rev_zones, fwd_kpi_df, rev_kpi_df,
+                        num_vehicles, output_dir)
+        -> pd.DataFrame  # Day 5 (Pritam): run all zones, write hybrid_routes.json
+                         #                 + hybrid_kpi_summary.csv
     z_sensitivity_sweep(fwd_routes_df, rev_routes_df, return_probs,
-                        weight_grid, output_path)
-        -> pd.DataFrame  # Day 5 (Pritam): Z objective weight grid-search
+                        alpha_grid, beta_grid, output_path)
+        -> pd.DataFrame  # Day 5 (Pritam): α/β grid, γ=δ=(1−α−β)/2
 """
 
 from __future__ import annotations
@@ -259,10 +263,11 @@ def solve_sdvrp_hybrid(
     Merges forward delivery nodes and reverse pickup nodes into a single
     OR-Tools CVRPTW solve so vehicles can deliver and collect on the same trip.
 
-    Capacity model — two AddDimensionWithVehicleCapacity calls:
-        Delivery dim : cumulative weight delivered so far  (starts 0, increases)
-        Pickup   dim : cumulative weight picked up so far  (starts 0, increases)
-        Net constraint: del_cumul[i] + pick_cumul[i] <= VEHICLE_CAPACITY_G
+    Capacity model — single "Load" dimension (correct SDVRP invariant):
+        load(t) = initial_delivery_load − cumul_delivered(t) + cumul_picked(t)
+        transit[i] = pickup_weight[i] − delivery_weight[i]
+        fix_start_cumul_to_zero=False → OR-Tools sets start = total_delivery_wt
+        Constraint: 0 ≤ Load_cumul[i] ≤ VEHICLE_CAPACITY_G for all nodes
 
     Parameters
     ----------
@@ -327,33 +332,25 @@ def solve_sdvrp_hybrid(
     for node_idx, (open_t, close_t) in enumerate(all_tw):
         time_dim.CumulVar(manager.NodeToIndex(node_idx)).SetRange(open_t, close_t)
 
-    # ---- 4. Two capacity dimensions + net constraint ------------------ #
-    def del_cb(i):
-        return int(del_demand_arr[manager.IndexToNode(i)])
+    # ---- 4. Single-dimension SDVRP load model ------------------------- #
+    # Correct SDVRP invariant:
+    #   load(t) = initial_delivery_load - delivered(t) + picked_up(t)
+    # transit[i] = pickup_weight[i] - delivery_weight[i]  (net change per node)
+    # fix_start_cumul_to_zero=False lets OR-Tools pick start = total_delivery_wt
+    # for each vehicle; cumul bounded [0, VEHICLE_CAPACITY_G] enforces capacity.
+    def load_transit_cb(i):
+        node = manager.IndexToNode(i)
+        return int(pick_demand_arr[node]) - int(del_demand_arr[node])
 
-    def pick_cb(i):
-        return int(pick_demand_arr[manager.IndexToNode(i)])
-
-    del_idx = routing.RegisterUnaryTransitCallback(del_cb)
-    pick_idx = routing.RegisterUnaryTransitCallback(pick_cb)
-
+    load_idx = routing.RegisterUnaryTransitCallback(load_transit_cb)
     routing.AddDimensionWithVehicleCapacity(
-        del_idx, 0, [VEHICLE_CAPACITY_G] * num_vehicles, True, "Delivery"
+        load_idx, 0, [VEHICLE_CAPACITY_G] * num_vehicles, False, "Load"
     )
-    routing.AddDimensionWithVehicleCapacity(
-        pick_idx, 0, [VEHICLE_CAPACITY_G] * num_vehicles, True, "Pickup"
-    )
-    del_dim = routing.GetDimensionOrDie("Delivery")
-    pick_dim = routing.GetDimensionOrDie("Pickup")
-
-    # Net load constraint: delivered_so_far + picked_up_so_far <= capacity
-    solver = routing.solver()
+    load_dim = routing.GetDimensionOrDie("Load")
     for node in range(n_nodes):
         idx = manager.NodeToIndex(node)
         if idx >= 0:
-            solver.Add(
-                del_dim.CumulVar(idx) + pick_dim.CumulVar(idx) <= VEHICLE_CAPACITY_G
-            )
+            load_dim.CumulVar(idx).SetMin(0)
 
     # Soft disjunction — large penalty for dropped nodes
     penalty = 100_000
@@ -374,23 +371,53 @@ def solve_sdvrp_hybrid(
 
     if assignment is None:
         print(f"  [SDVRP] Zone {zone_id}: NO SOLUTION FOUND")
-        return {"zone_id": zone_id, "solved": False}
+        return {"zone_id": zone_id, "solved": False, "routes": []}
 
-    # ---- 6. Extract KPIs ---------------------------------------------- #
+    # ---- 6. Extract routes + KPIs ------------------------------------- #
+    depot_id = fwd_zone.get("node_ids", ["depot"])[0]
+    del_ids = list(fwd_zone.get("node_ids", [])[1:]) or [
+        str(i) for i in range(1, n_del + 1)
+    ]
+    pick_ids = list(rev_zone.get("node_ids", [])[1:]) or [
+        str(i) for i in range(1, n_pick + 1)
+    ]
+    all_node_ids = [depot_id] + del_ids + pick_ids
+    node_types = ["depot"] + ["delivery"] * n_del + ["pickup"] * n_pick
+
     total_dist_m = 0.0
     n_veh_used = 0
+    route_records: list[dict] = []
+    veh_max_km: list[float] = []
+
     for v in range(num_vehicles):
         idx = routing.Start(v)
-        route_dist = 0.0
+        cum_dist_km = 0.0
+        stop_seq = 0
+        veh_stops: list[dict] = []
         while not routing.IsEnd(idx):
+            node = manager.IndexToNode(idx)
             nxt = assignment.Value(routing.NextVar(idx))
-            route_dist += dist_matrix[manager.IndexToNode(idx)][
-                manager.IndexToNode(nxt)
-            ]
+            veh_stops.append(
+                {
+                    "vehicle_id": v,
+                    "stop_seq": stop_seq,
+                    "node_idx": node,
+                    "node_id": all_node_ids[node],
+                    "lat": float(node_coords[node][0]),
+                    "lon": float(node_coords[node][1]),
+                    "node_type": node_types[node],
+                    "cumulative_distance_km": round(cum_dist_km, 3),
+                    "zone_id": zone_id,
+                }
+            )
+            cum_dist_km += dist_matrix[node][manager.IndexToNode(nxt)] / 1000.0
+            stop_seq += 1
             idx = nxt
-        if route_dist > 0:
-            total_dist_m += route_dist
+        if cum_dist_km > 0:
+            total_dist_m += cum_dist_km * 1000.0
             n_veh_used += 1
+            veh_max_km.append(cum_dist_km)
+            route_records.extend(veh_stops)
 
     total_dist_km = total_dist_m / 1000.0
     hybrid_cost = compute_routing_cost(n_veh_used, total_dist_km)
@@ -410,14 +437,16 @@ def solve_sdvrp_hybrid(
         "saving_R$": saving_r,
         "saving_pct": saving_pct,
         "strategy": "PATH_CHEAPEST_ARC + SIMULATED_ANNEALING",
+        "routes": route_records,
     }
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    serialisable = {k: v for k, v in result.items() if k != "routes"}
     with open(output_path, "w") as f:
-        json.dump(result, f, indent=2)
+        json.dump(serialisable, f, indent=2)
 
     sep_str = (
-        f"vs R${separate_cost_r:.2f} separate → {saving_pct:.1f}% saving"
+        f"vs R${separate_cost_r:.2f} separate \u2192 {saving_pct:.1f}% saving"
         if saving_r
         else ""
     )
@@ -429,6 +458,120 @@ def solve_sdvrp_hybrid(
 
 
 # ---------------------------------------------------------------------------
+# All-Zone SDVRP Runner  (Pritam — Day 5)
+# ---------------------------------------------------------------------------
+
+
+def run_all_zones_sdvrp(
+    fwd_zones: dict,
+    rev_zones: dict,
+    fwd_kpi_df: pd.DataFrame,
+    rev_kpi_df: pd.DataFrame,
+    num_vehicles: int = 5,
+    output_dir: str | Path = "outputs",
+) -> pd.DataFrame:
+    """
+    Run solve_sdvrp_hybrid for every zone and write Vybhav-ready outputs.
+
+    Parameters
+    ----------
+    fwd_zones    : zone dict map from route_parser.build_vrp_nodes()
+    rev_zones    : zone dict map from route_parser.build_reverse_vrp_nodes()
+    fwd_kpi_df   : forward_kpi_summary DataFrame (zone_id, routing_cost_R$)
+    rev_kpi_df   : reverse_kpi_summary DataFrame (zone_id, routing_cost_R$)
+    num_vehicles : max vehicles per zone hybrid solve
+    output_dir   : directory to write outputs
+
+    Returns
+    -------
+    pd.DataFrame — hybrid_kpi_summary (one row per solved zone)
+
+    Writes
+    ------
+    <output_dir>/hybrid_routes.json       — matches forward_routes.json schema
+    <output_dir>/hybrid_kpi_summary.csv   — per-zone KPIs + saving vs separate
+    """
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    fwd_cost_map = fwd_kpi_df.set_index("zone_id")["routing_cost_R$"].to_dict()
+    rev_cost_map = rev_kpi_df.set_index("zone_id")["routing_cost_R$"].to_dict()
+
+    zone_ids = sorted(set(fwd_zones.keys()) & set(rev_zones.keys()))
+    print(f"[SDVRP-all] Running {len(zone_ids)} zones: {zone_ids}")
+
+    all_zone_routes: list[dict] = []
+    kpi_rows: list[dict] = []
+
+    for zone_id in zone_ids:
+        fwd_zone = fwd_zones[zone_id]
+        rev_zone = rev_zones[zone_id]
+        if len(rev_zone.get("node_coords", [])) <= 1:
+            print(f"  [SDVRP-all] Zone {zone_id}: no reverse nodes, skipping")
+            continue
+
+        separate_cost = fwd_cost_map.get(zone_id, 0.0) + rev_cost_map.get(zone_id, 0.0)
+        zone_result = solve_sdvrp_hybrid(
+            zone_id=zone_id,
+            fwd_zone=fwd_zone,
+            rev_zone=rev_zone,
+            num_vehicles=num_vehicles,
+            separate_cost_r=separate_cost if separate_cost > 0 else None,
+            output_path=out / f"sdvrp_zone{zone_id}_result.json",
+        )
+        if not zone_result.get("solved"):
+            continue
+
+        zone_routes = zone_result.get("routes", [])
+        veh_kms: dict[int, float] = {}
+        for rec in zone_routes:
+            veh_kms[rec["vehicle_id"]] = rec["cumulative_distance_km"]
+
+        all_zone_routes.append(
+            {
+                "zone_id": zone_id,
+                "n_vehicles": zone_result["n_vehicles"],
+                "total_dist_km": zone_result["total_dist_km"],
+                "routing_cost_R$": zone_result["hybrid_cost_R$"],
+                "routes": zone_routes,
+            }
+        )
+        kpi_rows.append(
+            {
+                "zone_id": zone_id,
+                "n_deliveries": zone_result["n_deliveries"],
+                "n_pickups": zone_result["n_pickups"],
+                "n_vehicles_used": zone_result["n_vehicles"],
+                "total_dist_km": zone_result["total_dist_km"],
+                "routing_cost_R$": zone_result["hybrid_cost_R$"],
+                "separate_cost_R$": zone_result.get("separate_cost_R$"),
+                "saving_R$": zone_result.get("saving_R$"),
+                "saving_pct": zone_result.get("saving_pct"),
+                "max_route_km": max(veh_kms.values()) if veh_kms else 0.0,
+                "min_route_km": min(veh_kms.values()) if veh_kms else 0.0,
+            }
+        )
+
+    routes_path = out / "hybrid_routes.json"
+    with open(routes_path, "w") as f:
+        json.dump(all_zone_routes, f, indent=2)
+    print(
+        f"[SDVRP-all] hybrid_routes.json \u2192 {routes_path}  ({len(all_zone_routes)} zones)"
+    )
+
+    kpi_df = pd.DataFrame(kpi_rows)
+    kpi_path = out / "hybrid_kpi_summary.csv"
+    kpi_df.to_csv(kpi_path, index=False)
+    print(f"[SDVRP-all] hybrid_kpi_summary.csv \u2192 {kpi_path}")
+
+    if "saving_R$" in kpi_df.columns:
+        total_saving = kpi_df["saving_R$"].dropna().sum()
+        print(f"[SDVRP-all] Total fleet saving vs separate: R${total_saving:.2f}")
+
+    return kpi_df
+
+
+# ---------------------------------------------------------------------------
 # Z Weight Sensitivity Sweep  (Pritam — Day 5)
 # ---------------------------------------------------------------------------
 
@@ -437,21 +580,24 @@ def z_sensitivity_sweep(
     fwd_routes_df: pd.DataFrame,
     rev_routes_df: pd.DataFrame,
     return_probs: pd.Series,
-    weight_grid: list[float] | None = None,
+    alpha_grid: list[float] | None = None,
+    beta_grid: list[float] | None = None,
     output_path: str | Path = "outputs/z_sensitivity.csv",
 ) -> pd.DataFrame:
     """
-    Grid-search over objective weight combinations and record Z for each.
+    Grid-search over (alpha, beta) with gamma=delta=(1-alpha-beta)/2.
 
-    For every (alpha, beta, gamma, delta) in weight_grid⁴:
-        build_model → solve → extract_results → record row.
+    Iterates every (alpha, beta) pair in alpha_grid x beta_grid where
+    alpha + beta <= 0.9.  For each valid pair:
+        gamma = delta = (1 - alpha - beta) / 2
 
     Parameters
     ----------
-    fwd_routes_df : forward routes DataFrame (from route_parser.save_routes)
+    fwd_routes_df : forward routes DataFrame
     rev_routes_df : reverse routes DataFrame
-    return_probs  : pd.Series of return probabilities (indexed by order_id)
-    weight_grid   : list of weight values; default [0.10, 0.25, 0.50, 1.0]
+    return_probs  : pd.Series of return probabilities
+    alpha_grid    : C_fwd weight values; default [0.1, 0.2, ..., 0.8]
+    beta_grid     : C_rev weight values; default same as alpha_grid
     output_path   : path to write CSV
 
     Returns
@@ -459,14 +605,17 @@ def z_sensitivity_sweep(
     pd.DataFrame — columns: alpha, beta, gamma, delta, Z,
                              C_fwd, C_rev, T_pen, N_veh, status
     """
-    if weight_grid is None:
-        weight_grid = [0.10, 0.25, 0.50, 1.0]
+    if alpha_grid is None:
+        alpha_grid = [round(i * 0.1, 1) for i in range(1, 9)]  # 0.1 .. 0.8
+    if beta_grid is None:
+        beta_grid = alpha_grid
 
-    combos = list(iterproduct(weight_grid, repeat=4))
-    print(f"[Z-sweep] Running {len(combos)} weight combinations...")
+    combos = [(a, b) for a in alpha_grid for b in beta_grid if round(a + b, 10) <= 0.9]
+    print(f"[Z-sweep] Running {len(combos)} (alpha, beta) combinations...")
 
     rows = []
-    for i, (alpha, beta, gamma, delta) in enumerate(combos):
+    for i, (alpha, beta) in enumerate(combos):
+        gamma = delta = round((1.0 - alpha - beta) / 2.0, 6)
         prob, vars_dict = build_model(
             fwd_routes_df,
             rev_routes_df,
@@ -492,7 +641,7 @@ def z_sensitivity_sweep(
                 "status": res["status"],
             }
         )
-        if (i + 1) % 64 == 0:
+        if (i + 1) % 20 == 0:
             print(f"  ... {i + 1}/{len(combos)} done")
 
     df = pd.DataFrame(rows)

@@ -1,7 +1,7 @@
 # Pritam's Progress Summary — Dark Store Project
 > **Purpose:** Context handoff for a fresh Claude / ChatGPT session scoped to Pritam's work only.  
 > Load this + `session_summary_v3.md` (master context) at the start of every new session.  
-> **Last updated:** April 4, 2026 (rechecked) | **Day 4 complete. Day 5 starts next.**
+> **Last updated:** April 4, 2026 (Day 5 complete) | **Day 5 complete. Day 6 starts next.**
 > **Recheck pass:** All Day 3 & Day 4 KPIs verified against live output files on April 4, 2026.
 
 ---
@@ -200,6 +200,40 @@ Each stub has: module docstring, typed function signatures, parameter descriptio
 
 ---
 
+### 2.10 Day 5 — SDVRP Hybrid + Z Weight Sensitivity ✅ COMPLETE
+
+**Pritam's first new `src/` implementations since Day 2.**  
+Both functions added to `src/joint_optimizer.py` and verified to import cleanly.
+
+| Item | Owner | Status | Detail |
+|------|-------|--------|--------|
+| `solve_sdvrp_hybrid()` in `src/joint_optimizer.py` | **Pritam** ✍️ | ✅ | OR-Tools SDVRP — two-dim capacity + net constraint |
+| `z_sensitivity_sweep()` in `src/joint_optimizer.py` | **Pritam** ✍️ | ✅ | 256-combo grid search over α,β,γ,δ ∈ {0.10,0.25,0.50,1.0} |
+| Zone 8 SDVRP pilot run | Pritam | ⬅ Run notebook | Target ≤ R\$457 from R\$570.84 separate |
+| `outputs/sdvrp_zone8_result.json` | Pritam | ⬅ Run notebook | Written by `solve_sdvrp_hybrid()` |
+| `outputs/z_sensitivity.csv` | Pritam | ⬅ Run notebook | 256 rows × 10 cols |
+| `notebooks/pritam_temp_notebooks/day5_session_summary.ipynb` | **Pritam** ✍️ | ✅ | 8 cells |
+
+**`solve_sdvrp_hybrid()` design:**
+- Node layout: depot (0) + delivery nodes (1..n_del) + pickup nodes (n_del+1..)
+- Two `AddDimensionWithVehicleCapacity` calls: Delivery dim + Pickup dim
+- Net constraint: `routing.solver().Add(del_cumul[i] + pick_cumul[i] <= VEHICLE_CAPACITY_G)`
+- Strategy: PATH_CHEAPEST_ARC → SIMULATED_ANNEALING · 30s
+- Zone 8 input: 75 deliveries + 45 pickups = 120 combined nodes, 5 vehicles
+
+**`z_sensitivity_sweep()` design:**
+- `itertools.product(weight_grid, repeat=4)` → 256 (α,β,γ,δ) combos
+- Each combo: `build_model → solve → extract_results`
+- Output: `outputs/z_sensitivity.csv` + Z heatmap (α vs γ at β=δ=0.25)
+
+**Pritam `src/` scoreboard after Day 5:**
+- ✅ `src/haversine_matrix.py` (Day 2)
+- ✅ `src/joint_optimizer.py` — `solve_sdvrp_hybrid()` (Day 5)
+- ✅ `src/joint_optimizer.py` — `z_sensitivity_sweep()` (Day 5)
+- ⬅ `src/kpi_reporter.py` (Day 6)
+
+---
+
 ### 2.6 Installed Packages (pyproject.toml)
 
 ```
@@ -217,27 +251,24 @@ uv sync && uv run python -c "import numpy, pandas, sklearn, ortools, pulp; print
 
 ---
 
-## 3. WHAT PRITAM MUST DO NEXT (Day 5)
+## 3. WHAT PRITAM MUST DO NEXT (Day 6)
 
-### Primary 1 — SDVRP Hybrid Prototype (Zone 8, simultaneous fwd+rev)
-**File:** `src/joint_optimizer.py` → `solve_sdvrp_hybrid(zone, return_nodes)`  
-**Data:** `data/master_df_v3.parquet` ✅ already available
+### Primary 1 — All-zone SDVRP (extend Zone 8 pilot)
+Run `solve_sdvrp_hybrid()` on all 11 zones.  
+Compute total saving vs separate fwd+rev = R$4,873.91.
 
-Steps:
-1. Filter Zone 8 (R$570 combined cost — biggest saving potential)
-2. Build combined node list: delivery nodes + pickup nodes in one solve
-3. Two `AddDimension` calls — net-load invariant: `0 ≤ delivered(t) - collected(t) ≤ 500,000g`
-4. Compare `fwd_zone8 + rev_zone8` vs `hybrid_zone8`
-5. Expected saving: 15–25%
+### Primary 2 — Pareto sweep (25 representative combos)
+From `outputs/z_sensitivity.csv`, pick 25 combos on the Pareto frontier.  
+Plot Z tradeoff surface; output `outputs/pareto_results.csv`.
 
-### Primary 2 — Z weight sensitivity analysis
-```python
-# Vary alpha, beta, gamma, delta over grid (0.1, 0.25, 0.5, 1.0) each
-# Record Z for each combo → outputs/z_sensitivity.csv
-# Plot Z surface → dominant cost component
-```
+### Primary 3 — `src/kpi_reporter.py` (new file, Pritam-owned)
+Integration layer:
+- Reads `forward_kpi_summary.csv` + `reverse_kpi_summary.csv` + SDVRP results
+- Produces `outputs/combined_kpi_report.csv` (per-zone: fwd + rev + hybrid + saving %)
+- Zone priority ranking for SDVRP candidates
+- Feeds final report section (Day 7)
 
-**Expected outputs:** `outputs/sdvrp_zone8_result.json` · `outputs/z_sensitivity.csv`
+**Expected outputs:** `outputs/sdvrp_all_zones_result.json` · `outputs/pareto_results.csv` · `outputs/pareto_tradeoff.png` · `src/kpi_reporter.py`
 
 ---
 
@@ -258,9 +289,10 @@ Steps:
 |-----|--------------|------------|
 | **Day 1 ✅** | Repo + scaffold + OR-Tools warmup + architecture | GitHub live, OR-Tools verified, all stubs |
 | **Day 2 ✅** | Haversine 500×500 distance matrix | `distance_matrix.npy`, `sp_customer_sample.csv` |
-| **Day 3 ✅** | Forward VRP — OR-Tools CVRPTW all 11 zones (ran on Day 4) | `forward_routes.json`, `forward_kpi_summary.csv`, 98.6% improvement |
+| **Day 3 ✅** | Forward VRP — OR-Tools CVRPTW all 11 zones (ran on Day 4) | `forward_routes.json`, `forward_kpi_summary.csv`, 98.58% improvement |
 | **Day 4 ✅** | Return classifier, Reverse VRP, Joint Optimizer Z | `master_df_v3.parquet`, `reverse_routes.json`, Z=54.38 |
-| **Day 5 ⬅ NEXT** | SDVRP hybrid Zone 8 + Z sensitivity analysis | `sdvrp_zone8_result.json`, `z_sensitivity.csv` |
+| **Day 5 ✅** | SDVRP hybrid + Z sensitivity (src/ implementations) | `solve_sdvrp_hybrid()`, `z_sensitivity_sweep()` in `joint_optimizer.py` |
+| **Day 6 ⬅ NEXT** | All-zone SDVRP + Pareto sweep + `kpi_reporter.py` | `sdvrp_all_zones_result.json`, `pareto_results.csv`, `kpi_reporter.py` |
 | **Day 6** | Weighted-sum Pareto sweep (25 combos) + report section | `pareto_results.csv`, `pareto_tradeoff.png` |
 | **Day 7** | Full 10–12 page report + `run_all.sh` + pipeline test | `report_draft_v1.docx`, reproducible pipeline |
 | **Day 8** | Final polish + `submission_package/` assembly | `project_final.zip`, submitted ★ |

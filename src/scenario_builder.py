@@ -1,9 +1,9 @@
 """
-scenario_builder.py — Day 4 · Anurag
+scenario_builder.py
 Dark Store + Integrated Logistics
 
-Builds vrp_nodes.csv from master_df_v3.parquet (since Pranav's Day 2-3
-file is not yet available), then produces three scenario variants:
+Builds vrp_nodes.csv from master_df_v3.parquet and dark_stores_final.csv,
+then produces three scenario variants:
 
     Scenario A (Base)          → outputs/vrp_nodes_A.csv   current demand
     Scenario B (Surge +30%)    → outputs/vrp_nodes_B.csv   all demand_kg × 1.3
@@ -16,9 +16,6 @@ Usage:
     python scenario_builder.py
     python scenario_builder.py --parquet data/master_df_v3.parquet
     python scenario_builder.py --parquet data/master_df_v3.parquet --out_dir outputs --vrp_dir data
-
-Dependencies:
-    pandas, numpy, scipy, pathlib  (all in requirements.txt)
 """
 
 from __future__ import annotations
@@ -221,24 +218,18 @@ def build_vrp_nodes(df: pd.DataFrame, stores_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Step 4: Compute dark store centroids directly from master_df_v3
+# Step 4: Load dark store locations
 # ---------------------------------------------------------------------------
 
 
-def derive_stores(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute zone depot locations purely from master_df_v3.
-    Uses mean customer lat/lon per dark_store_id as the depot centroid.
-    No external file dependency — master_df_v3 is the single source.
-    """
-    centroids = (
-        df.groupby("dark_store_id")[["customer_lat", "customer_lon"]]
-        .mean()
-        .rename(columns={"customer_lat": "lat", "customer_lon": "lon"})
-        .reset_index()
-    )
-    print(f"  Computed {len(centroids)} zone centroids from master_df_v3")
-    return centroids
+def derive_stores(stores_path: Path) -> pd.DataFrame:
+    """Load dark_stores_final.csv produced by Sneha's clustering step."""
+    stores = pd.read_csv(stores_path)
+    # Normalise column names
+    if "store_lat" in stores.columns and "lat" not in stores.columns:
+        stores = stores.rename(columns={"store_lat": "lat", "store_lon": "lon"})
+    print(f"  Loaded dark_stores_final.csv: {len(stores)} stores")
+    return stores
 
 
 # ---------------------------------------------------------------------------
@@ -323,14 +314,14 @@ def run(
     vrp_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "=" * 60)
-    print("  SCENARIO BUILDER — Day 4 (Anurag)")
+    print("  SCENARIO BUILDER ")
     print("=" * 60)
 
     # 1. Load
     df = load_master(parquet_path)
 
-    # 2. Dark store centroids — derived purely from master_df_v3
-    stores = derive_stores(df)
+    # 2. Dark store locations from Sneha's clustering output
+    stores = derive_stores(vrp_dir / "dark_stores_final.csv")
 
     # 3. Build base vrp_nodes
     print("\n  Building base vrp_nodes …")

@@ -25,6 +25,9 @@ outputs/*.csv
 outputs/*.json
 outputs/*.html
 outputs/
+visualisations/
+visualisations/*.html
+visualisations\sp_eda_map.html
 
 # Jupyter checkpoints
 .ipynb_checkpoints/

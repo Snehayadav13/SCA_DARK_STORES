@@ -1,7 +1,7 @@
 # Pritam's Progress Summary — Dark Store Project
 > **Purpose:** Context handoff for a fresh Claude / ChatGPT session scoped to Pritam's work only.  
 > Load this + `session_summary_v3.md` (master context) at the start of every new session.  
-> **Last updated:** April 4, 2026 | **Day 3 complete (ran on Day 4). Day 4 starts now.**
+> **Last updated:** April 4, 2026 | **Day 4 complete. Day 5 starts next.**
 
 ---
 
@@ -149,6 +149,31 @@ Each stub has: module docstring, typed function signatures, parameter descriptio
 
 ---
 
+### 2.9 Day 4 — Return Classifier + Reverse VRP + Joint Optimizer ✅ COMPLETE
+
+| Item | Status | Detail |
+|------|--------|--------|
+| `return_classifier.run_full_pipeline()` | ✅ Done | XGBoost + Platt calibration |
+| `data/master_df_v3.parquet` | ✅ Done | 19,207 rows + `return_prob` + `return_flag` |
+| `outputs/return_clf_v1.pkl` | ✅ Done | Fitted model |
+| `outputs/return_classifier_metrics.json` | ✅ Done | ROC-AUC=0.897, PR-AUC=0.472 |
+| 593 orders flagged for pickup | ✅ Done | 3.1% at threshold 0.30 |
+| `reverse_vrp.run_full_pipeline()` | ✅ Done | 11/11 zones solved |
+| `outputs/reverse_routes.json` | ✅ Done | Full pickup routes |
+| `outputs/reverse_kpi_summary.csv` | ✅ Done | 946.4 km · R$2,170 · 15 vehicles |
+| `joint_optimizer.run()` Z computable | ✅ Done | Status=Optimal, Z=54.38 |
+| `outputs/joint_optimizer_result.json` | ✅ Done | α=β=γ=δ=0.25 |
+| `day4_session_summary.ipynb` | ✅ Done | 9 cells |
+
+**Key numbers:**
+- Return classifier ROC-AUC 0.897 (target ≥0.70 ✅). 593/19,207 orders flagged (3.1%).
+- Reverse VRP: 946.4 km, R$2,170, 15 vehicles, 11/11 zones solved.
+- Combined logistics: R$2,704 forward + R$2,170 reverse = **R$4,874 total**.
+- Z function: `joint_optimizer.run()` → Optimal in 0.04s (8 binary variables, PuLP/CBC).
+- `master_df_v3.parquet` built from `return_classifier.py`, not from Vybhav — fully self-contained.
+
+---
+
 ### 2.6 Installed Packages (pyproject.toml)
 
 ```
@@ -166,38 +191,38 @@ uv sync && uv run python -c "import numpy, pandas, sklearn, ortools, pulp; print
 
 ---
 
-## 3. WHAT PRITAM MUST DO NEXT (Day 4 — April 4, Today)
+## 3. WHAT PRITAM MUST DO NEXT (Day 5)
 
-### Primary 1 — SDVRP Hybrid Prototype (1 zone, 5 returners)
-**File:** `src/joint_optimizer.py` → `solve_sdvrp_hybrid()`  
-**Depends on:** `master_df_v3.parquet` with `return_prob` (Vybhav's XGBoost) — **check git first**  
-**Fallback:** use `is_return` column from `master_df_v2.parquet` as binary `return_flag`
+### Primary 1 — SDVRP Hybrid Prototype (Zone 8, simultaneous fwd+rev)
+**File:** `src/joint_optimizer.py` → `solve_sdvrp_hybrid(zone, return_nodes)`  
+**Data:** `data/master_df_v3.parquet` ✅ already available
 
 Steps:
-1. Filter Zone 8 (bottleneck): 30 customers, ~5 with `return_flag=1`
-2. Build SDVRP node list: delivery nodes + pickup nodes
-3. Two `AddDimension` calls — delivery load + pickup load
-4. SDVRP load invariant: `0 ≤ load_delivered(t) - load_collected(t) ≤ 500,000g`
-5. Compare: `separate_fwd_cost + separate_rev_cost` vs `hybrid_cost`
-6. Expected saving: 15–25%
+1. Filter Zone 8 (R$570 combined cost — biggest saving potential)
+2. Build combined node list: delivery nodes + pickup nodes in one solve
+3. Two `AddDimension` calls — net-load invariant: `0 ≤ delivered(t) - collected(t) ≤ 500,000g`
+4. Compare `fwd_zone8 + rev_zone8` vs `hybrid_zone8`
+5. Expected saving: 15–25%
 
-### Primary 2 — `joint_optimizer.py` — compute Z
+### Primary 2 — Z weight sensitivity analysis
 ```python
-Z = alpha*C_fwd + beta*C_rev + gamma*T_penalty + delta*N_vehicles
-# Equal weights to start: alpha = beta = gamma = delta = 0.25
+# Vary alpha, beta, gamma, delta over grid (0.1, 0.25, 0.5, 1.0) each
+# Record Z for each combo → outputs/z_sensitivity.csv
+# Plot Z surface → dominant cost component
 ```
 
-**Expected outputs:** `src/joint_optimizer.py` (Z computable) · `outputs/sdvrp_prototype_v1.py`
+**Expected outputs:** `outputs/sdvrp_zone8_result.json` · `outputs/z_sensitivity.csv`
 
 ---
 
-## 4. BLOCKING DEPENDENCIES ON OTHERS (Day 4)
+## 4. BLOCKING DEPENDENCIES ON OTHERS (Day 5)
 
 | Who | What | Status |
 |-----|------|--------|
-| Vybhav | `data/master_df_v3.parquet` with `return_prob` column | Check git — needed for SDVRP |
+| Vybhav | `data/master_df_v3.parquet` | ✅ Self-generated via `return_classifier.py` |
 | Pranav | `vrp_nodes.csv` | ✅ Superseded by `route_parser.build_vrp_nodes()` |
 | Sneha | `dark_store_candidates.csv` | ✅ Done — K=11, `dark_stores_final.csv` generated |
+| Team | `outputs/reverse_routes.json` weighting for SDVRP | ✅ Done — Pritam generated |
 
 ---
 
@@ -208,8 +233,8 @@ Z = alpha*C_fwd + beta*C_rev + gamma*T_penalty + delta*N_vehicles
 | **Day 1 ✅** | Repo + scaffold + OR-Tools warmup + architecture | GitHub live, OR-Tools verified, all stubs |
 | **Day 2 ✅** | Haversine 500×500 distance matrix | `distance_matrix.npy`, `sp_customer_sample.csv` |
 | **Day 3 ✅** | Forward VRP — OR-Tools CVRPTW all 11 zones (ran on Day 4) | `forward_routes.json`, `forward_kpi_summary.csv`, 98.6% improvement |
-| **Day 4 🔄** | SDVRP hybrid prototype + `joint_optimizer.py` Z function | `sdvrp_prototype_v1.py`, Z computable |
-| **Day 5** | SDVRP hybrid all zones + `joint_optimizer.py` v1 | `hybrid_routes.json`, Z computable |
+| **Day 4 ✅** | Return classifier, Reverse VRP, Joint Optimizer Z | `master_df_v3.parquet`, `reverse_routes.json`, Z=54.38 |
+| **Day 5 ⬅ NEXT** | SDVRP hybrid Zone 8 + Z sensitivity analysis | `sdvrp_zone8_result.json`, `z_sensitivity.csv` |
 | **Day 6** | Weighted-sum Pareto sweep (25 combos) + report section | `pareto_results.csv`, `pareto_tradeoff.png` |
 | **Day 7** | Full 10–12 page report + `run_all.sh` + pipeline test | `report_draft_v1.docx`, reproducible pipeline |
 | **Day 8** | Final polish + `submission_package/` assembly | `project_final.zip`, submitted ★ |
@@ -235,7 +260,7 @@ git add -A && git commit -m "message" && git push origin main
 
 **GitHub:** https://github.com/metaphorpritam/SCA_DARK_STORES  
 **Branch:** `main`  
-**Current HEAD:** `pritam_temp_apr1` — Day 3 complete (Forward VRP 11/11 zones, baseline analysis, route_parser guide)
+**Current HEAD:** `pritam_temp_apr1` — Day 4 complete (return classifier ROC-AUC=0.897, reverse VRP 11/11 zones, Z=54.38)
 
 ---
 

@@ -46,6 +46,14 @@ from src.route_parser import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Active solver strategy — update this after running tuning in 05_reverse_vrp.ipynb
+# ---------------------------------------------------------------------------
+
+FIRST_SOLUTION_STRATEGY   = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+LOCAL_SEARCH_METAHEURISTIC = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+STRATEGY_LABEL             = "PATH_CHEAPEST_ARC + GUIDED_LOCAL_SEARCH"
+
 
 # ---------------------------------------------------------------------------
 # Solver
@@ -102,13 +110,9 @@ def solve_reverse_cvrptw(
         routing.AddDisjunction([manager.NodeToIndex(node)], penalty)
 
     params = pywrapcp.DefaultRoutingSearchParameters()
-    params.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
-    )
-    params.local_search_metaheuristic = (
-        routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-    )
-    params.time_limit.seconds = SOLVER_TIME_LIMIT_S
+    params.first_solution_strategy    = FIRST_SOLUTION_STRATEGY
+    params.local_search_metaheuristic = LOCAL_SEARCH_METAHEURISTIC
+    params.time_limit.seconds         = SOLVER_TIME_LIMIT_S
 
     assignment = routing.SolveWithParameters(params)
 
@@ -183,6 +187,7 @@ def run_full_pipeline(
     nodes_to_csv(reverse_zones, data_dir, "reverse_vrp_nodes.csv")
 
     print(f"\n[3/4] Solving reverse CVRPTW ({SOLVER_TIME_LIMIT_S}s per zone)...")
+    print(f"       Strategy: {STRATEGY_LABEL}")
     zone_results = {z["zone_id"]: solve_reverse_cvrptw(z) for z in reverse_zones}
     n_solved = sum(r["solved"] for r in zone_results.values())
     print(f"\n       {n_solved}/{len(reverse_zones)} zones solved")

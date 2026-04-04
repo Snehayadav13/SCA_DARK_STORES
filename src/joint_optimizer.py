@@ -1,5 +1,4 @@
 """
-THIS IS A STUB
 Module: joint_optimizer.py
 Stage:  Joint Forward + Reverse Logistics Optimisation (MILP via PuLP)
 
@@ -41,6 +40,12 @@ INTERFACE:
         -> dict
     run(...)
         -> dict  # convenience: build + solve + extract
+    solve_sdvrp_hybrid(zone_id, fwd_zone, rev_zone, num_vehicles,
+                       separate_cost_r, output_path)
+        -> dict          # Day 5 (Pritam): SDVRP one-zone hybrid solve
+    z_sensitivity_sweep(fwd_routes_df, rev_routes_df, return_probs,
+                        weight_grid, output_path)
+        -> pd.DataFrame  # Day 5 (Pritam): Z objective weight grid-search
 """
 
 from __future__ import annotations
@@ -48,16 +53,32 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import sys
+from itertools import product as iterproduct
+
 import numpy as np
 import pandas as pd
 import pulp
+from ortools.constraint_solver import routing_enums_pb2, pywrapcp
+
+if str(Path(__file__).parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.route_parser import (
+    VEHICLE_CAPACITY_G,
+    VEHICLE_SPEED_KMH,
+    SERVICE_TIME_MIN,
+    SOLVER_TIME_LIMIT_S,
+    build_distance_matrix,
+    compute_routing_cost,
+)
 
 
 # ---------------------------------------------------------------------------
 # Default objective weights (tuned on Day 6)
-DEFAULT_ALPHA = 1.0   # forward cost weight
-DEFAULT_BETA  = 0.8   # reverse cost weight (slightly cheaper per km)
-DEFAULT_GAMMA = 2.0   # penalty weight for late delivery
+DEFAULT_ALPHA = 1.0  # forward cost weight
+DEFAULT_BETA = 0.8  # reverse cost weight (slightly cheaper per km)
+DEFAULT_GAMMA = 2.0  # penalty weight for late delivery
 DEFAULT_DELTA = 50.0  # fixed cost equivalent per vehicle
 # ---------------------------------------------------------------------------
 
@@ -86,17 +107,31 @@ def build_model(
     """
     prob = pulp.LpProblem("joint_fwd_rev_optimisation", pulp.LpMinimize)
 
-    fwd_vehicles = forward_routes_df["vehicle_id"].unique().tolist() if not forward_routes_df.empty else []
-    rev_vehicles = reverse_routes_df["vehicle_id"].unique().tolist() if not reverse_routes_df.empty else []
+    fwd_vehicles = (
+        forward_routes_df["vehicle_id"].unique().tolist()
+        if not forward_routes_df.empty
+        else []
+    )
+    rev_vehicles = (
+        reverse_routes_df["vehicle_id"].unique().tolist()
+        if not reverse_routes_df.empty
+        else []
+    )
 
     # Per-vehicle route cost (total km)
     fwd_cost = (
-        forward_routes_df.groupby("vehicle_id")["cumulative_distance_km"].max().to_dict()
-        if not forward_routes_df.empty else {}
+        forward_routes_df.groupby("vehicle_id")["cumulative_distance_km"]
+        .max()
+        .to_dict()
+        if not forward_routes_df.empty
+        else {}
     )
     rev_cost = (
-        reverse_routes_df.groupby("vehicle_id")["cumulative_distance_km"].max().to_dict()
-        if not reverse_routes_df.empty else {}
+        reverse_routes_df.groupby("vehicle_id")["cumulative_distance_km"]
+        .max()
+        .to_dict()
+        if not reverse_routes_df.empty
+        else {}
     )
 
     # Binary activation variables
@@ -106,11 +141,15 @@ def build_model(
     # Expected return penalty: high return_prob orders that are on forward routes
     # incur a latency penalty if the reverse trip is not activated same day.
     expected_returns = float(return_probs.sum()) if not return_probs.empty else 0.0
-    T_pen_expr = gamma * expected_returns * (1 - pulp.lpSum(w.values()) / max(len(rev_vehicles), 1))
+    T_pen_expr = (
+        gamma
+        * expected_returns
+        * (1 - pulp.lpSum(w.values()) / max(len(rev_vehicles), 1))
+    )
 
     # Objective
     C_fwd_expr = alpha * pulp.lpSum(fwd_cost.get(v, 0) * u[v] for v in fwd_vehicles)
-    C_rev_expr = beta  * pulp.lpSum(rev_cost.get(v, 0)  * w[v] for v in rev_vehicles)
+    C_rev_expr = beta * pulp.lpSum(rev_cost.get(v, 0) * w[v] for v in rev_vehicles)
     N_veh_expr = delta * (pulp.lpSum(u.values()) + pulp.lpSum(w.values()))
 
     prob += C_fwd_expr + C_rev_expr + T_pen_expr + N_veh_expr, "total_cost"
@@ -121,8 +160,13 @@ def build_model(
     if rev_vehicles:
         prob += pulp.lpSum(w.values()) >= 1, "min_one_rev_vehicle"
 
-    return prob, {"u": u, "w": w, "fwd_cost": fwd_cost, "rev_cost": rev_cost,
-                  "expected_returns": expected_returns}
+    return prob, {
+        "u": u,
+        "w": w,
+        "fwd_cost": fwd_cost,
+        "rev_cost": rev_cost,
+        "expected_returns": expected_returns,
+    }
 
 
 def solve(prob: pulp.LpProblem, time_limit_s: int = 60) -> str:
@@ -142,8 +186,12 @@ def extract_results(
     u, w = vars_dict["u"], vars_dict["w"]
     fwd_cost, rev_cost = vars_dict["fwd_cost"], vars_dict["rev_cost"]
 
-    active_fwd = [v for v, var in u.items() if pulp.value(var) and pulp.value(var) > 0.5]
-    active_rev = [v for v, var in w.items() if pulp.value(var) and pulp.value(var) > 0.5]
+    active_fwd = [
+        v for v, var in u.items() if pulp.value(var) and pulp.value(var) > 0.5
+    ]
+    active_rev = [
+        v for v, var in w.items() if pulp.value(var) and pulp.value(var) > 0.5
+    ]
 
     C_fwd = sum(fwd_cost.get(v, 0) for v in active_fwd)
     C_rev = sum(rev_cost.get(v, 0) for v in active_rev)
@@ -151,7 +199,7 @@ def extract_results(
     Z = pulp.value(prob.objective) or 0.0
 
     assignments = pd.DataFrame(
-        [{"vehicle_id": v, "role": "forward",  "active": v in active_fwd} for v in u]
+        [{"vehicle_id": v, "role": "forward", "active": v in active_fwd} for v in u]
         + [{"vehicle_id": v, "role": "reverse", "active": v in active_rev} for v in w]
     )
 
@@ -177,7 +225,9 @@ def run(
     output_path: str | Path = "outputs/joint_optimizer_result.json",
 ) -> dict:
     """Convenience: build → solve → extract → save result."""
-    prob, vars_dict = build_model(forward_routes_df, reverse_routes_df, return_probs, alpha, beta, gamma, delta)
+    prob, vars_dict = build_model(
+        forward_routes_df, reverse_routes_df, return_probs, alpha, beta, gamma, delta
+    )
     status = solve(prob)
     result = extract_results(prob, vars_dict, forward_routes_df, reverse_routes_df)
 
@@ -191,11 +241,282 @@ def run(
 
 
 # ---------------------------------------------------------------------------
+# SDVRP Hybrid Solver  (Pritam — Day 5)
+# ---------------------------------------------------------------------------
+
+
+def solve_sdvrp_hybrid(
+    zone_id: int,
+    fwd_zone: dict,
+    rev_zone: dict,
+    num_vehicles: int = 5,
+    separate_cost_r: float | None = None,
+    output_path: str | Path = "outputs/sdvrp_zone8_result.json",
+) -> dict:
+    """
+    Simultaneous Delivery and Pickup VRP (SDVRP) for one zone.
+
+    Merges forward delivery nodes and reverse pickup nodes into a single
+    OR-Tools CVRPTW solve so vehicles can deliver and collect on the same trip.
+
+    Capacity model — two AddDimensionWithVehicleCapacity calls:
+        Delivery dim : cumulative weight delivered so far  (starts 0, increases)
+        Pickup   dim : cumulative weight picked up so far  (starts 0, increases)
+        Net constraint: del_cumul[i] + pick_cumul[i] <= VEHICLE_CAPACITY_G
+
+    Parameters
+    ----------
+    zone_id         : zone ID (int, for labelling)
+    fwd_zone        : zone dict from route_parser.build_vrp_nodes()
+    rev_zone        : zone dict from route_parser.build_reverse_vrp_nodes()
+    num_vehicles    : max vehicles available for hybrid solve
+    separate_cost_r : known cost of running fwd+rev separately (R$), for saving calc
+    output_path     : path to write result JSON
+
+    Returns
+    -------
+    dict  — zone_id, solved, n_deliveries, n_pickups, total_dist_km,
+            n_vehicles, hybrid_cost_R$, separate_cost_R$, saving_R$,
+            saving_pct, strategy
+    """
+    # ---- 1. Build combined node list ---------------------------------- #
+    # Node 0: depot  |  1..n_del: delivery  |  n_del+1..: pickup
+    n_del = len(fwd_zone["node_coords"]) - 1
+    n_pick = len(rev_zone["node_coords"]) - 1
+
+    depot_coords = fwd_zone["node_coords"][[0]]
+    del_coords = fwd_zone["node_coords"][1:]
+    pick_coords = rev_zone["node_coords"][1:]
+    node_coords = np.vstack([depot_coords, del_coords, pick_coords])
+
+    del_weights = fwd_zone["demands"][1:].tolist()
+    pick_weights = rev_zone["demands"][1:].tolist()
+
+    del_demand_arr = [0] + del_weights + [0] * n_pick
+    pick_demand_arr = [0] + [0] * n_del + pick_weights
+
+    del_tw = fwd_zone["time_windows"][1:]
+    pick_tw = rev_zone["time_windows"][1:]
+    all_tw = [[0, 1440]] + del_tw + pick_tw
+    n_nodes = 1 + n_del + n_pick
+
+    # ---- 2. Distance & time matrices ---------------------------------- #
+    dist_matrix = build_distance_matrix(node_coords)  # metres, float64
+    speed_m_per_min = VEHICLE_SPEED_KMH * 1000 / 60
+    time_matrix = np.rint(dist_matrix / speed_m_per_min).astype(int)
+
+    # ---- 3. OR-Tools model -------------------------------------------- #
+    manager = pywrapcp.RoutingIndexManager(n_nodes, num_vehicles, 0)
+    routing = pywrapcp.RoutingModel(manager)
+
+    def dist_cb(i, j):
+        return int(dist_matrix[manager.IndexToNode(i)][manager.IndexToNode(j)])
+
+    dist_idx = routing.RegisterTransitCallback(dist_cb)
+    routing.SetArcCostEvaluatorOfAllVehicles(dist_idx)
+
+    def time_cb(i, j):
+        ni = manager.IndexToNode(i)
+        return int(time_matrix[ni][manager.IndexToNode(j)]) + (
+            SERVICE_TIME_MIN if ni != 0 else 0
+        )
+
+    time_idx = routing.RegisterTransitCallback(time_cb)
+    routing.AddDimension(time_idx, 60, 1440, False, "Time")
+    time_dim = routing.GetDimensionOrDie("Time")
+    for node_idx, (open_t, close_t) in enumerate(all_tw):
+        time_dim.CumulVar(manager.NodeToIndex(node_idx)).SetRange(open_t, close_t)
+
+    # ---- 4. Two capacity dimensions + net constraint ------------------ #
+    def del_cb(i):
+        return int(del_demand_arr[manager.IndexToNode(i)])
+
+    def pick_cb(i):
+        return int(pick_demand_arr[manager.IndexToNode(i)])
+
+    del_idx = routing.RegisterUnaryTransitCallback(del_cb)
+    pick_idx = routing.RegisterUnaryTransitCallback(pick_cb)
+
+    routing.AddDimensionWithVehicleCapacity(
+        del_idx, 0, [VEHICLE_CAPACITY_G] * num_vehicles, True, "Delivery"
+    )
+    routing.AddDimensionWithVehicleCapacity(
+        pick_idx, 0, [VEHICLE_CAPACITY_G] * num_vehicles, True, "Pickup"
+    )
+    del_dim = routing.GetDimensionOrDie("Delivery")
+    pick_dim = routing.GetDimensionOrDie("Pickup")
+
+    # Net load constraint: delivered_so_far + picked_up_so_far <= capacity
+    solver = routing.solver()
+    for node in range(n_nodes):
+        idx = manager.NodeToIndex(node)
+        if idx >= 0:
+            solver.Add(
+                del_dim.CumulVar(idx) + pick_dim.CumulVar(idx) <= VEHICLE_CAPACITY_G
+            )
+
+    # Soft disjunction — large penalty for dropped nodes
+    penalty = 100_000
+    for node in range(1, n_nodes):
+        routing.AddDisjunction([manager.NodeToIndex(node)], penalty)
+
+    # ---- 5. Solve ----------------------------------------------------- #
+    params = pywrapcp.DefaultRoutingSearchParameters()
+    params.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    )
+    params.local_search_metaheuristic = (
+        routing_enums_pb2.LocalSearchMetaheuristic.SIMULATED_ANNEALING
+    )
+    params.time_limit.seconds = SOLVER_TIME_LIMIT_S
+
+    assignment = routing.SolveWithParameters(params)
+
+    if assignment is None:
+        print(f"  [SDVRP] Zone {zone_id}: NO SOLUTION FOUND")
+        return {"zone_id": zone_id, "solved": False}
+
+    # ---- 6. Extract KPIs ---------------------------------------------- #
+    total_dist_m = 0.0
+    n_veh_used = 0
+    for v in range(num_vehicles):
+        idx = routing.Start(v)
+        route_dist = 0.0
+        while not routing.IsEnd(idx):
+            nxt = assignment.Value(routing.NextVar(idx))
+            route_dist += dist_matrix[manager.IndexToNode(idx)][
+                manager.IndexToNode(nxt)
+            ]
+            idx = nxt
+        if route_dist > 0:
+            total_dist_m += route_dist
+            n_veh_used += 1
+
+    total_dist_km = total_dist_m / 1000.0
+    hybrid_cost = compute_routing_cost(n_veh_used, total_dist_km)
+
+    saving_r = round(separate_cost_r - hybrid_cost, 2) if separate_cost_r else None
+    saving_pct = round(saving_r / separate_cost_r * 100, 1) if saving_r else None
+
+    result = {
+        "zone_id": zone_id,
+        "solved": True,
+        "n_deliveries": n_del,
+        "n_pickups": n_pick,
+        "total_dist_km": round(total_dist_km, 2),
+        "n_vehicles": n_veh_used,
+        "hybrid_cost_R$": round(hybrid_cost, 2),
+        "separate_cost_R$": round(separate_cost_r, 2) if separate_cost_r else None,
+        "saving_R$": saving_r,
+        "saving_pct": saving_pct,
+        "strategy": "PATH_CHEAPEST_ARC + SIMULATED_ANNEALING",
+    }
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(result, f, indent=2)
+
+    sep_str = (
+        f"vs R${separate_cost_r:.2f} separate → {saving_pct:.1f}% saving"
+        if saving_r
+        else ""
+    )
+    print(
+        f"[SDVRP] Zone {zone_id}: {n_veh_used} vehicles | "
+        f"{total_dist_km:.2f} km | R${hybrid_cost:.2f}  {sep_str}"
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Z Weight Sensitivity Sweep  (Pritam — Day 5)
+# ---------------------------------------------------------------------------
+
+
+def z_sensitivity_sweep(
+    fwd_routes_df: pd.DataFrame,
+    rev_routes_df: pd.DataFrame,
+    return_probs: pd.Series,
+    weight_grid: list[float] | None = None,
+    output_path: str | Path = "outputs/z_sensitivity.csv",
+) -> pd.DataFrame:
+    """
+    Grid-search over objective weight combinations and record Z for each.
+
+    For every (alpha, beta, gamma, delta) in weight_grid⁴:
+        build_model → solve → extract_results → record row.
+
+    Parameters
+    ----------
+    fwd_routes_df : forward routes DataFrame (from route_parser.save_routes)
+    rev_routes_df : reverse routes DataFrame
+    return_probs  : pd.Series of return probabilities (indexed by order_id)
+    weight_grid   : list of weight values; default [0.10, 0.25, 0.50, 1.0]
+    output_path   : path to write CSV
+
+    Returns
+    -------
+    pd.DataFrame — columns: alpha, beta, gamma, delta, Z,
+                             C_fwd, C_rev, T_pen, N_veh, status
+    """
+    if weight_grid is None:
+        weight_grid = [0.10, 0.25, 0.50, 1.0]
+
+    combos = list(iterproduct(weight_grid, repeat=4))
+    print(f"[Z-sweep] Running {len(combos)} weight combinations...")
+
+    rows = []
+    for i, (alpha, beta, gamma, delta) in enumerate(combos):
+        prob, vars_dict = build_model(
+            fwd_routes_df,
+            rev_routes_df,
+            return_probs,
+            alpha=alpha,
+            beta=beta,
+            gamma=gamma,
+            delta=delta,
+        )
+        solve(prob, time_limit_s=30)
+        res = extract_results(prob, vars_dict, fwd_routes_df, rev_routes_df)
+        rows.append(
+            {
+                "alpha": alpha,
+                "beta": beta,
+                "gamma": gamma,
+                "delta": delta,
+                "Z": res["Z"],
+                "C_fwd": res["C_fwd"],
+                "C_rev": res["C_rev"],
+                "T_pen": res["T_pen"],
+                "N_veh": res["N_veh"],
+                "status": res["status"],
+            }
+        )
+        if (i + 1) % 64 == 0:
+            print(f"  ... {i + 1}/{len(combos)} done")
+
+    df = pd.DataFrame(rows)
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False)
+    print(f"[Z-sweep] Saved {len(df)} rows → {output_path}")
+
+    best = df.loc[df["Z"].idxmin()]
+    print(
+        f"[Z-sweep] Lowest Z={best['Z']:.3f} at "
+        f"α={best['alpha']} β={best['beta']} "
+        f"γ={best['gamma']} δ={best['delta']}"
+    )
+    return df
+
+
+# ---------------------------------------------------------------------------
 # Smoke test
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     # Minimal synthetic data — just checks the MILP scaffolding runs
-    fwd = pd.DataFrame({"vehicle_id": [0, 0, 1, 1], "cumulative_distance_km": [10, 20, 5, 15]})
+    fwd = pd.DataFrame(
+        {"vehicle_id": [0, 0, 1, 1], "cumulative_distance_km": [10, 20, 5, 15]}
+    )
     rev = pd.DataFrame({"vehicle_id": [0, 0], "cumulative_distance_km": [8, 16]})
     probs = pd.Series([0.3, 0.7, 0.1])
     result = run(fwd, rev, probs)

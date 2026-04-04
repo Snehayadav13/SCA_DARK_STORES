@@ -1,7 +1,8 @@
 # Pritam's Progress Summary — Dark Store Project
 > **Purpose:** Context handoff for a fresh Claude / ChatGPT session scoped to Pritam's work only.  
 > Load this + `session_summary_v3.md` (master context) at the start of every new session.  
-> **Last updated:** April 4, 2026 | **Day 4 complete. Day 5 starts next.**
+> **Last updated:** April 4, 2026 (rechecked) | **Day 4 complete. Day 5 starts next.**
+> **Recheck pass:** All Day 3 & Day 4 KPIs verified against live output files on April 4, 2026.
 
 ---
 
@@ -135,11 +136,28 @@ Each stub has: module docstring, typed function signatures, parameter descriptio
 | `outputs/forward_kpi_summary.csv` | ✅ Done | 1,069.6 km · R$2,704 · 22 vehicles |
 | `outputs/baseline_vs_optimised.csv` | ✅ Done | 98.6% distance reduction vs naive |
 
-**Key results:**
+**Key results (verified from `outputs/forward_kpi_summary.csv` + `outputs/baseline_vs_optimised.csv`):**
+
+| Zone | Orders | Vehicles | Dist (km) | Cost (R$) |
+|------|--------|----------|-----------|----------|
+| 0 | 75 | 2 | 94.00 | 241.00 |
+| 1 | 75 | 2 | 81.54 | 222.31 |
+| 2 | 75 | 1 | 108.01 | 212.02 |
+| 3 | 75 | 1 | 99.37 | 199.06 |
+| 4 | 75 | 3 | 88.57 | 282.86 |
+| 5 | 75 | 2 | 112.00 | 268.00 |
+| 6 | 75 | 2 | 97.33 | 246.00 |
+| 7 | 75 | 2 | 99.25 | 248.88 |
+| 8 | 75 | 3 | 113.91 | **320.86** |
+| 9 | 75 | 2 | 92.39 | 238.58 |
+| 10 | 75 | 2 | 83.22 | 224.83 |
+| **Total** | **825** | **22** | **1,069.59** | **2,704.40** |
+
 - K=11 dark stores chosen by coverage rule (≥70% within 5 km), overriding silhouette (K=3)
 - All 11 zones solved in 30s GLS — no dropped customers
-- Bottleneck: Zone 8 (R$320, 3 vehicles) — candidate for SDVRP hybrid
-- Most efficient: Zone 3 (R$199, 1 vehicle)
+- **Bottleneck: Zone 8 (R$320.86, 3 vehicles)** — candidate for SDVRP hybrid
+- Most efficient: Zone 3 (R$199.06, 1 vehicle)
+- **Baseline vs optimised:** 75,066.4 km (naive nearest-store) → 1,069.59 km → **98.58% improvement**
 - Fixed cost = ~40% of total → reducing vehicle count (delta) as impactful as reducing km (alpha)
 
 **Notebooks created (Day 3):**
@@ -156,21 +174,29 @@ Each stub has: module docstring, typed function signatures, parameter descriptio
 | `return_classifier.run_full_pipeline()` | ✅ Done | XGBoost + Platt calibration |
 | `data/master_df_v3.parquet` | ✅ Done | 19,207 rows + `return_prob` + `return_flag` |
 | `outputs/return_clf_v1.pkl` | ✅ Done | Fitted model |
-| `outputs/return_classifier_metrics.json` | ✅ Done | ROC-AUC=0.897, PR-AUC=0.472 |
-| 593 orders flagged for pickup | ✅ Done | 3.1% at threshold 0.30 |
+| `outputs/return_classifier_metrics.json` | ✅ Done | ROC-AUC=0.8969, PR-AUC=0.4716, Brier=0.0213 |
+| 593 orders flagged for pickup | ✅ Done | 3.1% of 19,207; test-set precision=0.5556 @ threshold=0.30 |
 | `reverse_vrp.run_full_pipeline()` | ✅ Done | 11/11 zones solved |
 | `outputs/reverse_routes.json` | ✅ Done | Full pickup routes |
-| `outputs/reverse_kpi_summary.csv` | ✅ Done | 946.4 km · R$2,170 · 15 vehicles |
-| `joint_optimizer.run()` Z computable | ✅ Done | Status=Optimal, Z=54.38 |
-| `outputs/joint_optimizer_result.json` | ✅ Done | α=β=γ=δ=0.25 |
-| `day4_session_summary.ipynb` | ✅ Done | 9 cells |
+| `outputs/reverse_kpi_summary.csv` | ✅ Done | 946.36 km · R$2,169.51 · 15 vehicles · 576 pickups |
+| `joint_optimizer.run()` Z computable | ✅ Done | Status=Optimal, Z=54.38, CBC solver 0.04s |
+| `outputs/joint_optimizer_result.json` | ✅ Done | α=β=γ=δ=0.25; C_fwd=44.94 C_rev=169.58 T_pen=287.06 |
+| `notebooks/04_joint_optimizer.ipynb` | ✅ Done | 14 cells — concept, MILP, Z decomposition, Zone 8 SDVRP |
+| `notebooks/05_reverse_vrp.ipynb` | ✅ Done | Extended to 16 cells — added interpretation + 3-panel chart |
+| `day4_session_summary.ipynb` | ✅ Done | 9 cells (private log) |
 
-**Key numbers:**
-- Return classifier ROC-AUC 0.897 (target ≥0.70 ✅). 593/19,207 orders flagged (3.1%).
-- Reverse VRP: 946.4 km, R$2,170, 15 vehicles, 11/11 zones solved.
-- Combined logistics: R$2,704 forward + R$2,170 reverse = **R$4,874 total**.
-- Z function: `joint_optimizer.run()` → Optimal in 0.04s (8 binary variables, PuLP/CBC).
+**Key numbers (verified from live output files):**
+- **Return classifier:** ROC-AUC=0.8969 ✅ (target ≥0.70), PR-AUC=0.4716, Brier=0.0213. Test set: precision=0.5556, recall=0.354, F1=0.4324 at threshold=0.30. 593/19,207 orders flagged (3.1% full dataset; 1.87% test set).
+- **Reverse VRP:** 946.36 km, R$2,169.51, 15 vehicles, 576 pickups, 11/11 zones solved. Solver: PATH_CHEAPEST_ARC → SIMULATED_ANNEALING 30s.
+- **Joint Optimizer:** Z=54.38 (Optimal), C_fwd=44.94, C_rev=169.58, **T_pen=287.06 (dominates ~54% of Z)**, N_veh=3. CBC solver, 8 binary variables, solved in 0.04s.
+- **Combined logistics cost:** R$2,704.40 (forward) + R$2,169.51 (reverse) = **R$4,873.91 total**.
+- **Zone 8 SDVRP target:** R$320.86 (fwd) + R$249.98 (rev) = R$570.84 combined → Day 5 target ≤ R$457 (20% hybrid saving).
 - `master_df_v3.parquet` built from `return_classifier.py`, not from Vybhav — fully self-contained.
+
+**Demo notebooks created (recheck verified):**
+- `notebooks/04_joint_optimizer.ipynb` — 14 cells: concept intro, MILP structure, Z decomposition (T_pen=54%), Zone 8 SDVRP R$571→R$457 analysis, combined cost chart.
+- `notebooks/05_reverse_vrp.ipynb` — extended from 14→16 cells: added interpretation markdown (fwd vs rev table, zone patterns, SA rationale, precision=0.556 note) + 3-panel cost/volume/SDVRP-overlay chart.
+- `notebooks/04_return_ml.ipynb` — already complete 26-cell team notebook (untouched).
 
 ---
 

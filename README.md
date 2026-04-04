@@ -1,8 +1,8 @@
 # Dark Store Placement + Integrated Forward & Reverse Logistics Optimisation
 
-> **Course:** Operations Management · Supply Chain Analytics  
-> **Institution:** PGDBA — ISI Kolkata / IIM Calcutta / IIT Kharagpur  
-> **Timeline:** April 1–8, 2026  
+> **Course:** Operations Management · Supply Chain Analytics
+> **Institution:** PGDBA — ISI Kolkata / IIM Calcutta / IIT Kharagpur
+> **Timeline:** April 1–8, 2026
 > **Dataset:** [Olist Brazilian E-Commerce](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
 
 ---
@@ -472,7 +472,7 @@ for zone_id in master_df["dark_store_id"].unique():
                .groupby(pd.Grouper(key="order_date", freq="W"))
                .size().reset_index(name="y")
                .rename(columns={"order_date": "ds"}))
-    
+
     m = Prophet(weekly_seasonality=True)
     m.fit(zone_df)
     future = m.make_future_dataframe(periods=4, freq="W")
@@ -519,22 +519,22 @@ import pulp
 def p_median(distances, demands, p):
     n_cust, n_fac = distances.shape
     prob = pulp.LpProblem("p_median", pulp.LpMinimize)
-    
+
     x = pulp.LpVariable.dicts("x",
         [(i,j) for i in range(n_cust) for j in range(n_fac)], cat="Binary")
     y = pulp.LpVariable.dicts("y", range(n_fac), cat="Binary")
-    
+
     prob += pulp.lpSum(
         distances[i][j] * demands[i] * x[i,j]
         for i in range(n_cust) for j in range(n_fac))
-    
+
     for i in range(n_cust):
         prob += pulp.lpSum(x[i,j] for j in range(n_fac)) == 1
     for i in range(n_cust):
         for j in range(n_fac):
             prob += x[i,j] <= y[j]
     prob += pulp.lpSum(y[j] for j in range(n_fac)) == p
-    
+
     prob.solve(pulp.PULP_CBC_CMD(msg=0))
     return [j for j in range(n_fac) if pulp.value(y[j]) > 0.5]
 ```
@@ -852,12 +852,12 @@ chmod +x run_all.sh
 
 | Name | Role | Responsibilities |
 |------|------|-----------------|
-| **Pritam Sarkar** ★★ | Lead · Claude Code | Architecture · Forward VRP · SDVRP · Joint Optimizer · Pareto Sweep · Report · Pipeline |
-| **Vybhav** ★ | Co-Lead Coder · Gemini Pro | Data Pipeline · p-Median · Return ML · Reverse VRP · Scenarios · Code Cleanup |
-| **Anurag** | Support · Gemini Pro | EDA · SP Filtering · Prophet Forecasting · Scenario Data Prep · Results Aggregation |
-| **Sneha** | Support · Gemini Pro | K-Means Clustering · Dark Store Selection · Sensitivity Analysis · Literature Review |
-| **Pranav** | Support · Gemini Pro | VRP Node List · Route Parser · Baseline Comparison · Forward KPI Metrics |
-| **Varsha** | Support · Gemini Pro | Folium Maps · Plotly Dashboard · Presentations · Report Assembly · Dry Run Lead |
+| **Pritam Sarkar** | Lead · Claude Code | Architecture · Forward VRP · SDVRP · Joint Optimizer · Pareto Sweep · Report · Pipeline |
+| **Vybhav** | Co-Lead Coder · Gemini Pro | Data Pipeline · p-Median · Return ML · Reverse VRP · Scenarios · Code Cleanup |
+| **Anurag** | Team Member · Gemini Pro | EDA · SP Filtering · Prophet Forecasting · Scenario Data Prep · Results Aggregation |
+| **Sneha** | Team Member · Gemini Pro | K-Means Clustering · Dark Store Selection · Sensitivity Analysis · Literature Review |
+| **Pranav** | Team Member · Gemini Pro | VRP Node List · Route Parser · Baseline Comparison · Forward KPI Metrics |
+| **Varsha** | Team Member · Gemini Pro | Folium Maps · Plotly Dashboard · Presentations · Report Assembly · Dry Run Lead |
 
 ---
 

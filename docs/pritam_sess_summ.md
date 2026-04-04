@@ -1,7 +1,7 @@
 # Pritam's Progress Summary — Dark Store Project
 > **Purpose:** Context handoff for a fresh Claude / ChatGPT session scoped to Pritam's work only.  
 > Load this + `session_summary_v3.md` (master context) at the start of every new session.  
-> **Last updated:** April 1, 2026 | **Day 2 complete. Day 3 starts April 2.**
+> **Last updated:** April 4, 2026 | **Day 3 complete (ran on Day 4). Day 4 starts now.**
 
 ---
 
@@ -14,7 +14,7 @@
 
 ---
 
-## 2. WHAT PRITAM HAS COMPLETED (Day 1 — March 31, 2026 + Day 2 — April 1, 2026)
+## 2. WHAT PRITAM HAS COMPLETED (Day 1 — April 1 · Day 2 — April 2 · Day 3 — April 4)
 
 ### 2.1 Environment & Repo
 
@@ -121,6 +121,34 @@ Each stub has: module docstring, typed function signatures, parameter descriptio
 
 ---
 
+### 2.8 Day 3 — Forward VRP CVRPTW All 11 Zones ✅ COMPLETE
+
+**Note:** Day 3 tasks ran on April 4 (Day 4) because Pranav's `vrp_nodes.csv` was not delivered. The team's `forward_vrp.py` builds nodes internally, making the hand-off redundant.
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Clustering pipeline run | ✅ Done | K=11, 73.7% coverage within 5 km, SP Metro 19,207 rows |
+| `data/dark_stores_final.csv` | ✅ Done | 11 dark store centroids with KPIs |
+| `data/master_df_v2.parquet` | ✅ Done | 19,207 rows + `dark_store_id` column |
+| `data/vrp_nodes.csv` | ✅ Done | 836 rows — 11 depots + 825 customers |
+| `outputs/forward_routes.json` | ✅ Done | **11/11 zones solved** via CVRPTW |
+| `outputs/forward_kpi_summary.csv` | ✅ Done | 1,069.6 km · R$2,704 · 22 vehicles |
+| `outputs/baseline_vs_optimised.csv` | ✅ Done | 98.6% distance reduction vs naive |
+
+**Key results:**
+- K=11 dark stores chosen by coverage rule (≥70% within 5 km), overriding silhouette (K=3)
+- All 11 zones solved in 30s GLS — no dropped customers
+- Bottleneck: Zone 8 (R$320, 3 vehicles) — candidate for SDVRP hybrid
+- Most efficient: Zone 3 (R$199, 1 vehicle)
+- Fixed cost = ~40% of total → reducing vehicle count (delta) as impactful as reducing km (alpha)
+
+**Notebooks created (Day 3):**
+- `notebooks/03_route_parser_guide.ipynb` — 12 cells: all constants, `build_vrp_nodes()`, OR-Tools index bug, `parse_solution()`, JSON format
+- `notebooks/03_vrp_baseline_analysis.ipynb` — 11 cells: zone KPI dashboard, naive baseline hist, coverage analysis, SDVRP targets
+- `notebooks/pritam_temp_notebooks/day3_session_summary.ipynb` — 12 cells: full session log + Day 4 task list
+
+---
+
 ### 2.6 Installed Packages (pyproject.toml)
 
 ```
@@ -138,36 +166,38 @@ uv sync && uv run python -c "import numpy, pandas, sklearn, ortools, pulp; print
 
 ---
 
-## 3. WHAT PRITAM MUST DO NEXT (Day 3 — April 2)
+## 3. WHAT PRITAM MUST DO NEXT (Day 4 — April 4, Today)
 
-Per the roadmap:
-
-### Primary task: Forward VRP — OR-Tools CVRPTW (Full Implementation)
-**Depends on:** `vrp_nodes.csv` from Pranav (Day 2 EOD)  
-**File to implement:** `src/joint_optimizer.py` + VRP runner
+### Primary 1 — SDVRP Hybrid Prototype (1 zone, 5 returners)
+**File:** `src/joint_optimizer.py` → `solve_sdvrp_hybrid()`  
+**Depends on:** `master_df_v3.parquet` with `return_prob` (Vybhav's XGBoost) — **check git first**  
+**Fallback:** use `is_return` column from `master_df_v2.parquet` as binary `return_flag`
 
 Steps:
-1. Load `vrp_nodes.csv` + `data/distance_matrix.npy`
-2. `RoutingIndexManager`: 1 dark store depot + N customers per zone
-3. Distance callback: integer-scaled Haversine matrix
-4. Demand callback: `order_weight_g` per customer
-5. Time callback: `travel_time = distance / 40 km/h + service_time_min`
-6. `AddDimensionWithVehicleCapacity`: max_load = 500 kg
-7. `SetCumulVarSoftUpperBound`: time window per customer
-8. Solve: `PATH_CHEAPEST_ARC` → `GUIDED_LOCAL_SEARCH` (30s limit per zone)
-9. Run for all K zones; collect solution objects
+1. Filter Zone 8 (bottleneck): 30 customers, ~5 with `return_flag=1`
+2. Build SDVRP node list: delivery nodes + pickup nodes
+3. Two `AddDimension` calls — delivery load + pickup load
+4. SDVRP load invariant: `0 ≤ load_delivered(t) - load_collected(t) ≤ 500,000g`
+5. Compare: `separate_fwd_cost + separate_rev_cost` vs `hybrid_cost`
+6. Expected saving: 15–25%
 
-**Expected output:** `outputs/forward_routes.json` — complete delivery routes for all zones
+### Primary 2 — `joint_optimizer.py` — compute Z
+```python
+Z = alpha*C_fwd + beta*C_rev + gamma*T_penalty + delta*N_vehicles
+# Equal weights to start: alpha = beta = gamma = delta = 0.25
+```
+
+**Expected outputs:** `src/joint_optimizer.py` (Z computable) · `outputs/sdvrp_prototype_v1.py`
 
 ---
 
-## 4. BLOCKING DEPENDENCIES ON OTHERS (Day 3)
+## 4. BLOCKING DEPENDENCIES ON OTHERS (Day 4)
 
-| Who | What Pritam needs from them | When |
-|-----|-----------------------------|------|
-| Pranav | `vrp_nodes.csv` (with time windows + demand) | EOD Day 2 |
-| Sneha | `dark_store_candidates.csv` (for zone count K) | EOD Day 2 |
-| Vybhav | `data/master_df.parquet` | ✅ Done (received Day 2) |
+| Who | What | Status |
+|-----|------|--------|
+| Vybhav | `data/master_df_v3.parquet` with `return_prob` column | Check git — needed for SDVRP |
+| Pranav | `vrp_nodes.csv` | ✅ Superseded by `route_parser.build_vrp_nodes()` |
+| Sneha | `dark_store_candidates.csv` | ✅ Done — K=11, `dark_stores_final.csv` generated |
 
 ---
 
@@ -177,8 +207,8 @@ Steps:
 |-----|--------------|------------|
 | **Day 1 ✅** | Repo + scaffold + OR-Tools warmup + architecture | GitHub live, OR-Tools verified, all stubs |
 | **Day 2 ✅** | Haversine 500×500 distance matrix | `distance_matrix.npy`, `sp_customer_sample.csv` |
-| **Day 3** | Forward VRP — OR-Tools CVRPTW all K zones | `forward_routes.json` |
-| **Day 4** | Forward VRP all zones + SDVRP prototype (1 zone) | `forward_kpi_summary.csv`, `sdvrp_prototype_v1.py` |
+| **Day 3 ✅** | Forward VRP — OR-Tools CVRPTW all 11 zones (ran on Day 4) | `forward_routes.json`, `forward_kpi_summary.csv`, 98.6% improvement |
+| **Day 4 🔄** | SDVRP hybrid prototype + `joint_optimizer.py` Z function | `sdvrp_prototype_v1.py`, Z computable |
 | **Day 5** | SDVRP hybrid all zones + `joint_optimizer.py` v1 | `hybrid_routes.json`, Z computable |
 | **Day 6** | Weighted-sum Pareto sweep (25 combos) + report section | `pareto_results.csv`, `pareto_tradeoff.png` |
 | **Day 7** | Full 10–12 page report + `run_all.sh` + pipeline test | `report_draft_v1.docx`, reproducible pipeline |
@@ -205,7 +235,7 @@ git add -A && git commit -m "message" && git push origin main
 
 **GitHub:** https://github.com/metaphorpritam/SCA_DARK_STORES  
 **Branch:** `main`  
-**Current HEAD:** Day 2 commit on branch `pritam_temp_apr1` (Haversine matrix complete)
+**Current HEAD:** `pritam_temp_apr1` — Day 3 complete (Forward VRP 11/11 zones, baseline analysis, route_parser guide)
 
 ---
 

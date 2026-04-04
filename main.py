@@ -33,12 +33,13 @@ from pathlib import Path
 STAGES = [
     "data_pipeline",
     "demand_baseline",
+    "haversine_matrix",
     "clustering",
     "return_classifier",
     "forward_vrp",
     "reverse_vrp",
-    "joint_optimizer",
-    "demand_forecasting",
+    # "joint_optimizer",
+    # "demand_forecasting",
 ]
 
 
@@ -46,18 +47,22 @@ STAGES = [
 # Stage runners
 # ---------------------------------------------------------------------------
 
+
 def run_data_pipeline():
     from src.data_pipeline import run
+
     run(raw_dir="data/raw", output_path="data/master_df.parquet")
 
 
 def run_demand_baseline():
     from src.demand_baseline import run
+
     run(input_path="data/master_df.parquet", output_dir="data")
 
 
 def run_clustering():
     from src.clustering import run_full_pipeline
+
     run_full_pipeline(
         parquet_path="data/master_df_v2.parquet",
         out_dir="data",
@@ -68,6 +73,7 @@ def run_clustering():
 
 def run_return_classifier():
     from src.return_classifier import run_full_pipeline
+
     run_full_pipeline(
         parquet_path="data/master_df_v2.parquet",
         out_dir="outputs",
@@ -77,6 +83,7 @@ def run_return_classifier():
 
 def run_forward_vrp():
     from src.forward_vrp import run_full_pipeline
+
     run_full_pipeline(
         parquet_path="data/master_df_v3.parquet",
         stores_path="data/dark_stores_final.csv",
@@ -87,6 +94,7 @@ def run_forward_vrp():
 
 def run_reverse_vrp():
     from src.reverse_vrp import run_full_pipeline
+
     run_full_pipeline(
         parquet_path="data/master_df_v3.parquet",
         stores_path="data/dark_stores_final.csv",
@@ -98,6 +106,7 @@ def run_reverse_vrp():
 def run_joint_optimizer():
     import pandas as pd
     from src.joint_optimizer import run
+
     fwd = pd.read_csv("outputs/forward_routes.csv")
     rev = pd.read_csv("outputs/reverse_routes.csv")
     probs = pd.read_parquet("data/master_df_v3.parquet")["return_prob"]
@@ -109,8 +118,19 @@ def run_joint_optimizer():
     )
 
 
+def run_haversine_matrix():
+    from src.haversine_matrix import run
+
+    run(
+        parquet_path="data/master_df.parquet",
+        matrix_path="data/distance_matrix.npy",
+        sample_csv_path="data/sp_customer_sample.csv",
+    )
+
+
 def run_demand_forecasting():
     from src.demand_forecasting import run_pipeline
+
     run_pipeline(input_path="data/master_df_v2.parquet")
 
 
@@ -119,13 +139,14 @@ def run_demand_forecasting():
 # ---------------------------------------------------------------------------
 
 RUNNERS = {
-    "data_pipeline":      run_data_pipeline,
-    "demand_baseline":    run_demand_baseline,
-    "clustering":         run_clustering,
-    "return_classifier":  run_return_classifier,
-    "forward_vrp":        run_forward_vrp,
-    "reverse_vrp":        run_reverse_vrp,
-    "joint_optimizer":    run_joint_optimizer,
+    "data_pipeline": run_data_pipeline,
+    "haversine_matrix": run_haversine_matrix,
+    "demand_baseline": run_demand_baseline,
+    "clustering": run_clustering,
+    "return_classifier": run_return_classifier,
+    "forward_vrp": run_forward_vrp,
+    "reverse_vrp": run_reverse_vrp,
+    # "joint_optimizer":    run_joint_optimizer,
     "demand_forecasting": run_demand_forecasting,
 }
 
@@ -133,6 +154,7 @@ RUNNERS = {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -192,4 +214,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

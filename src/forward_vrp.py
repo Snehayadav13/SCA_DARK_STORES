@@ -38,8 +38,6 @@ from src.route_parser import (
     SOLVER_TIME_LIMIT_S,
     SERVICE_TIME_MIN,
     NUM_VEHICLES,
-    FIXED_COST_PER_ROUTE,
-    VAR_COST_PER_KM,
     build_distance_matrix,
     build_vrp_nodes,
     parse_solution,
@@ -47,46 +45,6 @@ from src.route_parser import (
     nodes_to_csv,
     save_routes,
 )
-
-
-def compute_naive_baseline(
-    data_dir: str | Path = "data",
-    out_dir: str | Path = "outputs",
-) -> dict:
-    """
-    Compute naive routing baseline — no dark stores, no VRP.
-    Each customer assigned directly to nearest seller.
-    Uses same cost model as forward VRP: R$50 fixed + R$1.5/km.
-    Saves outputs/baseline_kpis_naive.csv.
-    """
-    data_dir = Path(data_dir)
-    out_dir = Path(out_dir)
-
-    dist_matrix = np.load(data_dir / "distance_matrix.npy")  # integer scaled ×1000
-    dist_km = dist_matrix / 1000.0
-
-    # Nearest seller per customer = min distance in each row (excluding self)
-    np.fill_diagonal(dist_km, np.inf)
-    nearest_dist_km = dist_km.min(axis=1)
-    np.fill_diagonal(dist_km, 0)
-
-    total_dist_km = float(nearest_dist_km.sum())
-    avg_dist_km = float(nearest_dist_km.mean())
-    n_customers = len(nearest_dist_km)
-    naive_cost = FIXED_COST_PER_ROUTE * n_customers + VAR_COST_PER_KM * total_dist_km
-
-    result = {
-        "n_customers": n_customers,
-        "total_naive_dist_km": round(total_dist_km, 2),
-        "avg_naive_dist_km": round(avg_dist_km, 2),
-        "naive_routing_cost_R$": round(naive_cost, 2),
-    }
-
-    pd.DataFrame([result]).to_csv(out_dir / "baseline_kpis_naive.csv", index=False)
-    print(f"[compute_naive_baseline] baseline_kpis_naive.csv saved")
-    print(f"  Avg naive dist : {avg_dist_km:.2f} km")
-    print(f"  Naive cost     : R${naive_cost:.0f}")
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +160,59 @@ def solve_cvrptw(
 # ---------------------------------------------------------------------------
 
 
+def compute_kpi_by_zone(
+    routes_df: pd.DataFrame,
+    zones: list[dict],
+    out_dir: str | Path = "outputs",
+) -> pd.DataFrame:
+    """
+    Compute per-zone per-vehicle metrics from routes_df already in memory.
+
+    Columns: zone_id, vehicle_id, num_stops, total_distance_km,
+             routing_cost_R$, cost_per_stop
+
+    Saves: {out_dir}/forward_kpi_by_zone.csv
+    """
+    if routes_df.empty:
+        return pd.DataFrame()
+
+    dist_per_vehicle = (
+        routes_df.groupby(["zone_id", "vehicle_id"])["cumulative_distance_km"]
+        .max()
+        .reset_index()
+        .rename(columns={"cumulative_distance_km": "total_distance_km"})
+    )
+
+    stops_per_vehicle = (
+        routes_df[routes_df["node_idx"] != 0]
+        .groupby(["zone_id", "vehicle_id"])["node_idx"]
+        .count()
+        .reset_index()
+        .rename(columns={"node_idx": "num_stops"})
+    )
+
+    kpi = dist_per_vehicle.merge(stops_per_vehicle, on=["zone_id", "vehicle_id"])
+    kpi["routing_cost_R$"] = (
+        FIXED_COST_PER_ROUTE + VAR_COST_PER_KM * kpi["total_distance_km"]
+    ).round(2)
+    kpi["cost_per_stop"] = (
+        kpi["routing_cost_R$"] / kpi["num_stops"].clip(lower=1)
+    ).round(2)
+    kpi["total_distance_km"] = kpi["total_distance_km"].round(3)
+
+    out_path = Path(out_dir) / "forward_kpi_by_zone.csv"
+    kpi.to_csv(out_path, index=False)
+    print(f"[compute_kpi_by_zone] forward_kpi_by_zone.csv saved ({len(kpi)} rows)")
+
+    bottleneck = kpi.loc[kpi["cost_per_stop"].idxmax()]
+    print(
+        f"  Bottleneck: Zone {int(bottleneck['zone_id'])} "
+        f"vehicle {int(bottleneck['vehicle_id'])} "
+        f"— R${bottleneck['cost_per_stop']:.2f}/stop"
+    )
+    return kpi
+
+
 def run_full_pipeline(
     parquet_path: str | Path = "data/master_df_v3.parquet",
     stores_path: str | Path = "data/dark_stores_final.csv",
@@ -243,9 +254,7 @@ def run_full_pipeline(
     print(f"\n       {n_solved}/{len(zones)} zones solved")
 
     print("\n[4/4] Saving outputs...")
-    naive_baseline = compute_naive_baseline(data_dir=data_dir, out_dir=out_dir)
     routes_df, kpi_df = save_routes(zone_results, zones, out_dir, prefix="forward")
-    kpi_by_zone_df = compute_kpi_by_zone(routes_df, zones, out_dir=out_dir)
 
     print("\n" + "=" * 60)
     print("  FORWARD VRP COMPLETE")

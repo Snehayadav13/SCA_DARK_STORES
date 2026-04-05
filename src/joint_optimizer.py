@@ -75,6 +75,8 @@ from src.route_parser import (
     SOLVER_TIME_LIMIT_S,
     build_distance_matrix,
     compute_routing_cost,
+    build_vrp_nodes,
+    build_reverse_vrp_nodes,
 )
 
 
@@ -126,6 +128,8 @@ def build_model(
     fwd_cost = (
         forward_routes_df.groupby("vehicle_id")["cumulative_distance_km"]
         .max()
+        .mul(1.5)
+        .add(50)
         .to_dict()
         if not forward_routes_df.empty
         else {}
@@ -133,6 +137,8 @@ def build_model(
     rev_cost = (
         reverse_routes_df.groupby("vehicle_id")["cumulative_distance_km"]
         .max()
+        .mul(1.5)
+        .add(50)
         .to_dict()
         if not reverse_routes_df.empty
         else {}
@@ -148,7 +154,7 @@ def build_model(
     T_pen_expr = (
         gamma
         * expected_returns
-        * (1 - pulp.lpSum(w.values()) / max(len(rev_vehicles), 1))
+        * (pulp.lpSum((1 - w[v]) for v in rev_vehicles) / max(len(rev_vehicles), 1))
     )
 
     # Objective
@@ -200,18 +206,23 @@ def extract_results(
     C_fwd = sum(fwd_cost.get(v, 0) for v in active_fwd)
     C_rev = sum(rev_cost.get(v, 0) for v in active_rev)
     N_veh = len(active_fwd) + len(active_rev)
-    Z = pulp.value(prob.objective) or 0.0
 
     assignments = pd.DataFrame(
         [{"vehicle_id": v, "role": "forward", "active": v in active_fwd} for v in u]
         + [{"vehicle_id": v, "role": "reverse", "active": v in active_rev} for v in w]
     )
 
+    n_rev = max(len(w), 1)
+    inactive_rev = sum(1 for v, var in w.items() if pulp.value(var) < 0.5)
+    actual_t_pen = DEFAULT_GAMMA * vars_dict["expected_returns"] * inactive_rev / n_rev
+
+    Z = pulp.value(prob.objective)
+
     return {
         "Z": round(Z, 3),
         "C_fwd": round(C_fwd, 3),
         "C_rev": round(C_rev, 3),
-        "T_pen": round(vars_dict["expected_returns"], 3),
+        "T_pen": round(actual_t_pen, 3),
         "N_veh": N_veh,
         "status": pulp.LpStatus[prob.status],
         "vehicle_assignments": assignments,
@@ -497,6 +508,11 @@ def run_all_zones_sdvrp(
     fwd_cost_map = fwd_kpi_df.set_index("zone_id")["routing_cost_R$"].to_dict()
     rev_cost_map = rev_kpi_df.set_index("zone_id")["routing_cost_R$"].to_dict()
 
+    if isinstance(fwd_zones, list):
+        fwd_zones = {z["zone_id"]: z for z in fwd_zones}
+    if isinstance(rev_zones, list):
+        rev_zones = {z["zone_id"]: z for z in rev_zones}
+
     zone_ids = sorted(set(fwd_zones.keys()) & set(rev_zones.keys()))
     print(f"[SDVRP-all] Running {len(zone_ids)} zones: {zone_ids}")
 
@@ -659,14 +675,27 @@ def z_sensitivity_sweep(
 
 
 # ---------------------------------------------------------------------------
-# Smoke test
+# Entry Point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Minimal synthetic data — just checks the MILP scaffolding runs
-    fwd = pd.DataFrame(
-        {"vehicle_id": [0, 0, 1, 1], "cumulative_distance_km": [10, 20, 5, 15]}
-    )
-    rev = pd.DataFrame({"vehicle_id": [0, 0], "cumulative_distance_km": [8, 16]})
-    probs = pd.Series([0.3, 0.7, 0.1])
+    fwd = pd.read_csv("outputs/forward_routes.csv")
+    rev = pd.read_csv("outputs/reverse_routes.csv")
+    master = pd.read_parquet("data/master_df_v3.parquet")
+    probs = master.loc[master["return_flag"] == 1, "return_prob"]
     result = run(fwd, rev, probs)
     print(result)
+    # Joint optimizer
+    fwd = pd.read_csv("outputs/forward_routes.csv")
+    rev = pd.read_csv("outputs/reverse_routes.csv")
+    master = pd.read_parquet("data/master_df_v3.parquet")
+    probs = master.loc[master["return_flag"] == 1, "return_prob"]
+    result = run(fwd, rev, probs)
+    print(result)
+
+    # SDVRP hybrid all zones
+    dark_stores = pd.read_csv("data/dark_stores_final.csv")
+    fwd_zones = build_vrp_nodes(master, dark_stores)
+    rev_zones = build_reverse_vrp_nodes(master[master["return_flag"] == 1], dark_stores)
+    fwd_kpi = pd.read_csv("outputs/forward_kpi_summary.csv")
+    rev_kpi = pd.read_csv("outputs/reverse_kpi_summary.csv")
+    run_all_zones_sdvrp(fwd_zones, rev_zones, fwd_kpi, rev_kpi)

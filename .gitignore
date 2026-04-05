@@ -32,6 +32,9 @@ visualisations\sp_eda_map.html
 # Jupyter checkpoints
 .ipynb_checkpoints/
 
+# Private session/experimental notebooks — not for main repo
+notebooks/pritam_temp_notebooks/
+
 # Models
 models/
 

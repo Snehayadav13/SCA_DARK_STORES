@@ -162,6 +162,40 @@ def solve_reverse_cvrptw(
     }
 
 
+def compute_all_zones_summary(
+    routes_df: pd.DataFrame,
+    kpi_df: pd.DataFrame,
+    out_dir: str | Path = "outputs",
+) -> pd.DataFrame:
+    """
+    Compute all_zones_reverse_results.csv from routes_df + kpi_df already in memory.
+    """
+    pickups_per_route = (
+        routes_df[routes_df["node_idx"] != 0]
+        .groupby(["zone_id", "vehicle_id"])["node_idx"]
+        .count()
+        .reset_index(name="n_pickups_on_route")
+    )
+    avg_per_zone = (
+        pickups_per_route.groupby("zone_id")["n_pickups_on_route"].mean().round(1)
+    )
+
+    summary = kpi_df.rename(
+        columns={
+            "total_dist_km": "total_pickup_distance_km",
+            "routing_cost_R$": "total_pickup_cost_R$",
+        }
+    ).copy()
+    summary["avg_pickups_per_route"] = summary["zone_id"].map(avg_per_zone)
+
+    out_path = Path(out_dir) / "all_zones_reverse_results.csv"
+    summary.to_csv(out_path, index=False)
+    print(
+        f"[compute_all_zones_summary] all_zones_reverse_results.csv saved ({len(summary)} rows)"
+    )
+    return summary
+
+
 # ---------------------------------------------------------------------------
 # Full pipeline
 # ---------------------------------------------------------------------------
@@ -216,6 +250,7 @@ def run_full_pipeline(
     routes_df, kpi_df = save_routes(
         zone_results, reverse_zones, out_dir, prefix="reverse"
     )
+    compute_all_zones_summary(routes_df, kpi_df, out_dir=out_dir)
 
     print("\n" + "=" * 60)
     print("  REVERSE VRP COMPLETE")

@@ -35,8 +35,10 @@ EARTH_RADIUS_KM = 6371.0
 
 
 def haversine_km(
-    lat1: np.ndarray, lon1: np.ndarray,
-    lat2: np.ndarray, lon2: np.ndarray,
+    lat1: np.ndarray,
+    lon1: np.ndarray,
+    lat2: np.ndarray,
+    lon2: np.ndarray,
 ) -> np.ndarray:
     """
     Vectorised Haversine distance in km between two arrays of (lat, lon).
@@ -53,6 +55,7 @@ def haversine_km(
 # Demand profile
 # ---------------------------------------------------------------------------
 
+
 def build_demand_profile(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate orders per customer_zip_code_prefix per ISO week.
@@ -66,14 +69,13 @@ def build_demand_profile(df: pd.DataFrame) -> pd.DataFrame:
     df["year"] = df["order_date"].dt.isocalendar().year.astype(int)
     df["week"] = df["order_date"].dt.isocalendar().week.astype(int)
 
-    demand = (
-        df.groupby(["customer_zip_code_prefix", "year", "week"], as_index=False)
-        .agg(
-            order_count=("order_id", "count"),
-            total_value=("order_value", "sum"),
-            total_weight_g=("product_weight_g", "sum"),
-            return_count=("is_return", "sum"),
-        )
+    demand = df.groupby(
+        ["customer_zip_code_prefix", "year", "week"], as_index=False
+    ).agg(
+        order_count=("order_id", "count"),
+        total_value=("order_value", "sum"),
+        total_weight_g=("product_weight_g", "sum"),
+        return_count=("is_return", "sum"),
     )
     demand["return_rate"] = demand["return_count"] / demand["order_count"]
     demand = demand.sort_values(["customer_zip_code_prefix", "year", "week"])
@@ -88,14 +90,11 @@ def build_zip_demand_summary(df: pd.DataFrame) -> pd.DataFrame:
         customer_zip_code_prefix, demand_order_count, demand_total_value,
         mean_lat, mean_lon
     """
-    summary = (
-        df.groupby("customer_zip_code_prefix", as_index=False)
-        .agg(
-            demand_order_count=("order_id", "count"),
-            demand_total_value=("order_value", "sum"),
-            mean_lat=("customer_lat", "mean"),
-            mean_lon=("customer_lon", "mean"),
-        )
+    summary = df.groupby("customer_zip_code_prefix", as_index=False).agg(
+        demand_order_count=("order_id", "count"),
+        demand_total_value=("order_value", "sum"),
+        mean_lat=("customer_lat", "mean"),
+        mean_lon=("customer_lon", "mean"),
     )
     return summary.sort_values("demand_order_count", ascending=False)
 
@@ -103,6 +102,7 @@ def build_zip_demand_summary(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Baseline KPIs (naive — no dark stores, no clustering)
 # ---------------------------------------------------------------------------
+
 
 def compute_baseline_kpis(df: pd.DataFrame) -> dict:
     """
@@ -115,42 +115,44 @@ def compute_baseline_kpis(df: pd.DataFrame) -> dict:
     # Customer → seller Haversine distance (drop rows with null seller coords)
     valid = df.dropna(subset=["seller_lat", "seller_lon"]).copy()
     valid["cust_seller_dist_km"] = haversine_km(
-        valid["customer_lat"].values, valid["customer_lon"].values,
-        valid["seller_lat"].values, valid["seller_lon"].values,
+        valid["customer_lat"].values,
+        valid["customer_lon"].values,
+        valid["seller_lat"].values,
+        valid["seller_lon"].values,
     )
 
     kpis = {
         # --- Distance ---
         "mean_cust_seller_dist_km": round(valid["cust_seller_dist_km"].mean(), 2),
         "median_cust_seller_dist_km": round(valid["cust_seller_dist_km"].median(), 2),
-        "p90_cust_seller_dist_km": round(valid["cust_seller_dist_km"].quantile(0.90), 2),
+        "p90_cust_seller_dist_km": round(
+            valid["cust_seller_dist_km"].quantile(0.90), 2
+        ),
         "max_cust_seller_dist_km": round(valid["cust_seller_dist_km"].max(), 2),
-
         # --- Delivery time ---
         "mean_delivery_days": round(df["delivery_days"].mean(), 2),
         "median_delivery_days": round(df["delivery_days"].median(), 2),
         "mean_days_late": round(df["days_late"].mean(), 2),
         "pct_late_deliveries": round((df["days_late"] > 0).mean() * 100, 2),
-
         # --- Returns ---
         "return_rate_pct": round(df["is_return"].mean() * 100, 2),
         "total_returns": int(df["is_return"].sum()),
         "total_orders": len(df),
-
         # --- Cost proxies ---
         "mean_order_value": round(df["order_value"].mean(), 2),
         "mean_freight_value": round(df["freight_value"].mean(), 2),
         "total_freight_revenue": round(df["freight_value"].sum(), 2),
-
         # --- Coverage (naive = 0%, no dark stores) ---
         "dark_store_coverage_pct": 0.0,
         "num_dark_stores": 0,
-
         # --- Unique entities ---
         "unique_customers": df["customer_id"].nunique(),
         "unique_zips": df["customer_zip_code_prefix"].nunique(),
-        "unique_sellers_in_sp_orders": valid["seller_zip_code_prefix"].nunique()
-            if "seller_zip_code_prefix" in valid.columns else -1,
+        "unique_sellers_in_sp_orders": (
+            valid["seller_zip_code_prefix"].nunique()
+            if "seller_zip_code_prefix" in valid.columns
+            else -1
+        ),
     }
     return kpis
 
@@ -158,6 +160,7 @@ def compute_baseline_kpis(df: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------------------
 # Enrich master_df → v2
 # ---------------------------------------------------------------------------
+
 
 def enrich_master_df(df: pd.DataFrame, zip_summary: pd.DataFrame) -> pd.DataFrame:
     """
@@ -187,6 +190,7 @@ def enrich_master_df(df: pd.DataFrame, zip_summary: pd.DataFrame) -> pd.DataFram
 # Main pipeline
 # ---------------------------------------------------------------------------
 
+
 def run(
     input_path: str | Path = "data/master_df.parquet",
     output_dir: str | Path = "data",
@@ -203,6 +207,20 @@ def run(
     print("\n[1/5] Loading master_df.parquet...")
     df = pd.read_parquet(input_path)
     print(f"  Loaded {len(df):,} rows")
+
+    SP_METRO_CITIES = {
+        "sao paulo",
+        "guarulhos",
+        "sao bernardo do campo",
+        "santo andre",
+        "osasco",
+    }
+    before = len(df)
+    df = df[df["customer_city"].isin(SP_METRO_CITIES)].copy()
+    print(
+        f"  Metro filter: {before:,} → {len(df):,} rows "
+        f"({len(df)/before*100:.1f}% of SP state retained)"
+    )
 
     # Demand profile (weekly, per zip)
     print("\n[2/5] Building demand profile (weekly × zip)...")
@@ -221,9 +239,11 @@ def run(
     print(f"  Saved {len(zip_summary):,} zips → {zip_path}")
     print(f"  Top 5 zips by order count:")
     for _, row in zip_summary.head(5).iterrows():
-        print(f"    ZIP {int(row['customer_zip_code_prefix']):>5d}  "
-              f"{int(row['demand_order_count']):>4d} orders  "
-              f"({row['mean_lat']:.4f}, {row['mean_lon']:.4f})")
+        print(
+            f"    ZIP {int(row['customer_zip_code_prefix']):>5d}  "
+            f"{int(row['demand_order_count']):>4d} orders  "
+            f"({row['mean_lat']:.4f}, {row['mean_lon']:.4f})"
+        )
 
     # Baseline KPIs
     print("\n[4/5] Computing baseline KPIs (naive — no dark stores)...")
@@ -262,5 +282,6 @@ def run(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import sys
+
     inp = sys.argv[1] if len(sys.argv) > 1 else "data/master_df.parquet"
     run(input_path=inp)

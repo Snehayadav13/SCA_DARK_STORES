@@ -6,8 +6,8 @@ Collects forward + reverse KPIs into a unified DataFrame, computes joint
 totals, and identifies the hardest zone (highest cost per delivery).
 
 Inputs:
-    outputs/forward_kpi_by_zone.csv     — 
-    outputs/reverse_kpi_summary.csv     —
+    outputs/forward_kpi_by_zone.csv     — from Pranav's route_parser
+    outputs/reverse_kpi_summary.csv     — from Vybhav's reverse VRP
 
 Output:
     outputs/all_zones_summary.csv       — joint totals per zone + hardest zone flagged
@@ -31,7 +31,8 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 # ---------------------------------------------------------------------------
-# Expected column aliases — tolerant to slight naming differences between outputs
+# Expected column aliases — tolerant to slight naming differences between
+# Pranav's and Vybhav's outputs
 # ---------------------------------------------------------------------------
 
 # Forward KPI columns — verified against real forward_kpi_by_zone.csv
@@ -147,13 +148,34 @@ def _infer_cost(
 
 def load_forward(path: Path) -> pd.DataFrame:
     if not path.exists():
-        raise FileNotFoundError(
-            f"Forward KPI file not found: {path}\n"
-            "Ensure route_parser has completed and saved forward_kpi_by_zone.csv"
-        )
+        raise FileNotFoundError(f"Forward KPI file not found: {path}")
     df = pd.read_csv(path)
-    print(f"  Loaded forward KPIs: {len(df)} zones from {path.name}")
+    print(f"  Loaded forward KPIs: {len(df)} rows from {path.name}")
     print(f"  Forward columns: {df.columns.tolist()}")
+
+    # forward_kpi_by_zone.csv has one row per (zone_id, vehicle_id).
+    # Must aggregate to one row per zone before merging with reverse (one-row-per-zone).
+    zone_col = _resolve_col(df, ["zone_id", "dark_store_id", "store_id", "zone"])
+    if zone_col is None:
+        raise ValueError("Cannot find zone identifier column in forward KPI file.")
+
+    agg = {
+        c: "sum" for c in df.select_dtypes(include="number").columns if c != zone_col
+    }
+
+    # cost_per_stop is a rate — take mean, not sum
+    rate_cols = [c for c in ["cost_per_stop", "cost_per_delivery"] if c in agg]
+    for c in rate_cols:
+        agg[c] = "mean"
+
+    # n_vehicles: count distinct vehicle_ids per zone
+    vehicle_col = _resolve_col(df, ["vehicle_id", "n_vehicles", "num_vehicles"])
+    if vehicle_col and vehicle_col in df.columns:
+        agg[vehicle_col] = "nunique"
+
+    df = df.groupby(zone_col, as_index=False).agg(agg)
+    print(f"  Aggregated to {len(df)} zones (grouped by {zone_col})")
+
     df = _normalise(df, FWD_ALIASES)
 
     # Infer cost if missing
@@ -161,9 +183,7 @@ def load_forward(path: Path) -> pd.DataFrame:
         df["total_cost"] = _infer_cost(
             df, "total_distance_km", "n_vehicles", "total_cost"
         )
-        print(
-            "  Note: total_cost not found in forward file — estimated from distance + vehicles"
-        )
+        print("  Note: total_cost estimated from distance + vehicles")
 
     return df
 
@@ -172,7 +192,7 @@ def load_reverse(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(
             f"Reverse KPI file not found: {path}\n"
-            "Ensure reverse VRP has completed and saved reverse_kpi_summary.csv"
+            "Ensure Vybhav's reverse VRP has completed and saved reverse_kpi_summary.csv"
         )
     df = pd.read_csv(path)
     print(f"  Loaded reverse KPIs: {len(df)} zones from {path.name}")

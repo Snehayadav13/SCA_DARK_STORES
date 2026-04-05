@@ -10,7 +10,7 @@ then produces three scenario variants:
     Scenario C (High Returns)  → outputs/vrp_nodes_C.csv   return_prob threshold halved (×2 flagged returners)
 
 Intermediate output:
-    data/vrp_nodes.csv         base node list (reusable by Pritam / Pranav)
+    data/vrp_nodes.csv         base node list
 
 Usage:
     python scenario_builder.py
@@ -300,7 +300,7 @@ def print_summary(label: str, nodes: pd.DataFrame) -> None:
 
 def run(
     parquet_path: str | Path = "data/master_df_v3.parquet",
-    out_dir: str | Path = "outputs",
+    out_dir: str | Path = "data",
     vrp_dir: str | Path = "data",
 ) -> dict[str, pd.DataFrame]:
     """
@@ -408,8 +408,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--out_dir",
-        default="outputs",
-        help="Directory for vrp_nodes_A/B/C.csv (default: outputs)",
+        default="data",
+        help="Directory for vrp_nodes_A/B/C.csv (default: data)",
     )
     parser.add_argument(
         "--vrp_dir",

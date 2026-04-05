@@ -6,8 +6,8 @@ Collects forward + reverse KPIs into a unified DataFrame, computes joint
 totals, and identifies the hardest zone (highest cost per delivery).
 
 Inputs:
-    outputs/forward_kpi_by_zone.csv     — from Pranav's route_parser
-    outputs/reverse_kpi_summary.csv     — from Vybhav's reverse VRP
+    outputs/forward_kpi_by_zone.csv     —
+    outputs/reverse_kpi_summary.csv     —
 
 Output:
     outputs/all_zones_summary.csv       — joint totals per zone + hardest zone flagged
@@ -31,8 +31,7 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 # ---------------------------------------------------------------------------
-# Expected column aliases — tolerant to slight naming differences between
-# Pranav's and Vybhav's outputs
+# Expected column aliases — tolerant to slight naming differences between outputs
 # ---------------------------------------------------------------------------
 
 # Forward KPI columns — verified against real forward_kpi_by_zone.csv
@@ -201,7 +200,7 @@ def load_reverse(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(
             f"Reverse KPI file not found: {path}\n"
-            "Ensure Vybhav's reverse VRP has completed and saved reverse_kpi_summary.csv"
+            "Ensure reverse VRP has completed and saved reverse_kpi_summary.csv"
         )
     df = pd.read_csv(path)
     print(f"  Loaded reverse KPIs: {len(df)} zones from {path.name}")

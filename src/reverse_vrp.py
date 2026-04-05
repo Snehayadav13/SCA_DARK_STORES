@@ -51,6 +51,9 @@ from src.route_parser import (
 # Active solver strategy — update this after running tuning in notebook/05_reverse_vrp.ipynb
 # ---------------------------------------------------------------------------
 
+# Tuning confirmed by Sneha — PATH_CHEAPEST_ARC + SIMULATED_ANNEALING
+# won across 2 forward VRP zones. See outputs/solver_tuning_results.csv.
+
 FIRST_SOLUTION_STRATEGY = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
 LOCAL_SEARCH_METAHEURISTIC = (
     routing_enums_pb2.LocalSearchMetaheuristic.SIMULATED_ANNEALING

@@ -159,21 +159,30 @@ def load_forward(path: Path) -> pd.DataFrame:
     if zone_col is None:
         raise ValueError("Cannot find zone identifier column in forward KPI file.")
 
+    # Sum all numeric columns first
     agg = {
         c: "sum" for c in df.select_dtypes(include="number").columns if c != zone_col
     }
 
-    # cost_per_stop is a rate — take mean, not sum
-    rate_cols = [c for c in ["cost_per_stop", "cost_per_delivery"] if c in agg]
-    for c in rate_cols:
-        agg[c] = "mean"
-
-    # n_vehicles: count distinct vehicle_ids per zone
+    # n_vehicles: count distinct vehicle_ids per zone (not sum)
     vehicle_col = _resolve_col(df, ["vehicle_id", "n_vehicles", "num_vehicles"])
     if vehicle_col and vehicle_col in df.columns:
         agg[vehicle_col] = "nunique"
 
+    # cost_per_stop is a rate — exclude from sum, recompute after groupby
+    # as total_cost / total_stops (weighted, not simple mean)
+    rate_cols = [c for c in ["cost_per_stop", "cost_per_delivery"] if c in agg]
+    for c in rate_cols:
+        del agg[c]
+
     df = df.groupby(zone_col, as_index=False).agg(agg)
+
+    # Recompute cost_per_stop correctly: total_cost / total_stops
+    cost_col = _resolve_col(df, ["routing_cost_R$", "total_cost", "route_cost"])
+    stops_col = _resolve_col(df, ["num_stops", "n_stops"])
+    if cost_col and stops_col and cost_col in df.columns and stops_col in df.columns:
+        df["cost_per_stop"] = (df[cost_col] / df[stops_col].replace(0, 1)).round(4)
+
     print(f"  Aggregated to {len(df)} zones (grouped by {zone_col})")
 
     df = _normalise(df, FWD_ALIASES)
